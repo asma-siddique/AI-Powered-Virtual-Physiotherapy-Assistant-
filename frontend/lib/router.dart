@@ -1,0 +1,128 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import 'features/admin/admin_pages.dart';
+import 'features/auth/auth_controller.dart';
+import 'features/auth/auth_models.dart';
+import 'features/auth/ui/register_screen.dart';
+import 'features/auth/ui/sign_in_screen.dart';
+import 'features/auth/ui/welcome_screen.dart';
+import 'features/patient/patient_home_page.dart';
+import 'features/physio/physio_pages.dart';
+import 'features/shell/page_widgets.dart';
+import 'features/shell/role_shell.dart';
+
+const _publicPaths = {'/', '/sign-in', '/register'};
+
+/// Where a request for [location] should go instead, or null to allow it.
+/// The server enforces access on every request; this only keeps the UI honest.
+String? redirectFor(AuthState auth, String location) {
+  if (auth is! SignedIn) {
+    return _publicPaths.contains(location) ? null : '/sign-in';
+  }
+  final home = auth.user.account.role.homePath;
+  final insideOwnArea = location == home || location.startsWith('$home/');
+  return insideOwnArea ? null : home;
+}
+
+final routerProvider = Provider<GoRouter>((ref) {
+  final refresh = ValueNotifier(0);
+  ref.listen(authControllerProvider, (_, _) => refresh.value++);
+  ref.onDispose(refresh.dispose);
+
+  ShellRoute area(UserRole role, List<GoRoute> routes) => ShellRoute(
+    builder: (context, state, child) =>
+        RoleShell(role: role, location: state.matchedLocation, child: child),
+    routes: routes,
+  );
+
+  GoRoute page(String path, Widget child) => GoRoute(
+    path: path,
+    pageBuilder: (context, state) =>
+        NoTransitionPage(key: state.pageKey, child: child),
+  );
+
+  GoRoute soon(String path, String title, String description) =>
+      page(path, ComingSoonPage(title: title, description: description));
+
+  return GoRouter(
+    initialLocation: '/',
+    refreshListenable: refresh,
+    redirect: (context, state) =>
+        redirectFor(ref.read(authControllerProvider), state.matchedLocation),
+    routes: [
+      GoRoute(path: '/', builder: (context, state) => const WelcomeScreen()),
+      GoRoute(
+        path: '/sign-in',
+        builder: (context, state) => const SignInScreen(),
+      ),
+      GoRoute(
+        path: '/register',
+        builder: (context, state) => const RegisterScreen(),
+      ),
+      area(UserRole.patient, [
+        page('/patient', const PatientHomePage()),
+        soon(
+          '/patient/plan',
+          'My Exercise Plan',
+          'Your assigned exercises will be listed here.',
+        ),
+        soon(
+          '/patient/history',
+          'Session History',
+          'Your completed sessions will be listed here.',
+        ),
+        soon(
+          '/patient/progress',
+          'Progress',
+          'Your form-score trend will be shown here.',
+        ),
+        soon(
+          '/patient/chat',
+          'Chat',
+          'You will be able to message your physiotherapist here.',
+        ),
+        soon(
+          '/patient/feedback',
+          'Feedback',
+          'You will be able to share feedback here.',
+        ),
+      ]),
+      area(UserRole.physiotherapist, [
+        page('/physio', const PhysioDashboardPage()),
+        page('/physio/patients', const PhysioPatientsPage()),
+        soon(
+          '/physio/plan-builder',
+          'Plan Builder',
+          'You will build and assign exercise plans here.',
+        ),
+        soon(
+          '/physio/flagged',
+          'Flagged Sessions',
+          'Sessions that need your review will appear here.',
+        ),
+        soon(
+          '/physio/chat',
+          'Chat',
+          'You will be able to message your patients here.',
+        ),
+        soon(
+          '/physio/feedback',
+          'Patient Feedback',
+          'Feedback from your patients will appear here.',
+        ),
+      ]),
+      area(UserRole.admin, [
+        page('/admin', const AdminOverviewPage()),
+        page('/admin/users', const AdminUsersPage()),
+        soon(
+          '/admin/feedback',
+          'Patient Feedback',
+          'Feedback from all patients will appear here.',
+        ),
+        page('/admin/audit-log', const AdminAuditLogPage()),
+      ]),
+    ],
+  );
+});
