@@ -69,8 +69,8 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Reset your password'),
         content: const Text(
-          'Self-service password reset is not available yet. Ask your physiotherapist or '
-          'clinic administrator to help you regain access.',
+          'Ask your clinic to reset it. An administrator will give you a temporary '
+          'password, and you will choose a new one the next time you sign in.',
         ),
         actions: [
           TextButton(

@@ -107,6 +107,7 @@ class SessionUser {
     required this.account,
     this.physiotherapist,
     this.advisoryAcknowledged,
+    this.passwordChangeRequired = false,
   });
 
   factory SessionUser.fromJson(Map<String, dynamic> json) => SessionUser(
@@ -115,10 +116,15 @@ class SessionUser {
         ? null
         : PersonRef.fromJson(json['physiotherapist'] as Map<String, dynamic>),
     advisoryAcknowledged: json['advisory_acknowledged'] as bool?,
+    passwordChangeRequired: json['password_change_required'] as bool? ?? false,
   );
 
   final Account account;
   final PersonRef? physiotherapist;
+
+  /// True while the password is a temporary one issued by an admin. Nothing
+  /// else in the app opens until the person has chosen their own.
+  final bool passwordChangeRequired;
 
   /// Null for physiotherapists and admins, who are never asked.
   final bool? advisoryAcknowledged;
@@ -131,5 +137,6 @@ class SessionUser {
     account: account,
     physiotherapist: physiotherapist,
     advisoryAcknowledged: advisoryAcknowledged ?? this.advisoryAcknowledged,
+    passwordChangeRequired: passwordChangeRequired,
   );
 }

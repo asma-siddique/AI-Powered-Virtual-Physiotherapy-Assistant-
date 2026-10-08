@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     text,
     true,
 )
@@ -47,6 +48,9 @@ class Account(Base):
         Enum(Role, name="account_role", values_callable=lambda e: [m.value for m in e])
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    # Set while the password is one an admin issued: nothing but choosing a new
+    # password is allowed until the holder replaces it.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -220,6 +224,30 @@ class PlanExercise(Base):
         Enum(Difficulty, name="plan_difficulty", values_callable=lambda e: [m.value for m in e])
     )
     note: Mapped[str | None] = mapped_column(String(200))
+    # Goes up with every edit. A session records the revision it was performed
+    # against together with its own copy of the numbers, so a later edit can
+    # never change what an already completed session was scored on.
+    revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PrescriptionEdit(Base):
+    """One saved change to a prescription: for each edited field, the value
+    before and after. Rows are only ever added, so the full history of a
+    prescription can always be read back in order."""
+
+    __tablename__ = "prescription_edits"
+    __table_args__ = (Index("ix_prescription_edits_plan", "plan_id", "edited_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercise_plans.id"))
+    plan_exercise_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("plan_exercises.id"))
+    edited_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # The revision of the prescription this edit produced.
+    revision: Mapped[int] = mapped_column(Integer)
+    # {"sets": {"from": 3, "to": 4}, ...}
+    changes: Mapped[dict[str, Any]] = mapped_column(JSON)
 
 
 class Notification(Base):

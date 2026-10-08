@@ -89,6 +89,14 @@ final patientPlansProvider = FutureProvider.autoDispose
       (ref, patientId) => ref.watch(physioRepositoryProvider).plans(patientId),
     );
 
+/// The edits made to one plan's prescriptions, oldest first.
+final planEditsProvider = FutureProvider.autoDispose
+    .family<List<PrescriptionEdit>, ({String patientId, String planId})>(
+      (ref, plan) => ref
+          .watch(physioRepositoryProvider)
+          .prescriptionEdits(patientId: plan.patientId, planId: plan.planId),
+    );
+
 class PhysioRepository {
   PhysioRepository(this._api);
 
@@ -137,6 +145,44 @@ class PhysioRepository {
         )
         as Map<String, dynamic>,
   );
+
+  /// Changes one exercise of the patient's current plan and returns the plan
+  /// as it now is. The previous values are kept by the server.
+  Future<ExercisePlan> editPrescription({
+    required String patientId,
+    required String planId,
+    required String itemId,
+    required int sets,
+    required int reps,
+    required int restSeconds,
+    required Difficulty difficulty,
+    required String note,
+  }) async => ExercisePlan.fromJson(
+    await _api.patch(
+          '/physio/patients/$patientId/plans/$planId/items/$itemId',
+          body: {
+            'sets': sets,
+            'reps': reps,
+            'rest_seconds': restSeconds,
+            'difficulty': difficulty.apiValue,
+            'note': note,
+          },
+        )
+        as Map<String, dynamic>,
+  );
+
+  Future<List<PrescriptionEdit>> prescriptionEdits({
+    required String patientId,
+    required String planId,
+  }) async {
+    final json =
+        await _api.get('/physio/patients/$patientId/plans/$planId/edits')
+            as List<dynamic>;
+    return [
+      for (final item in json)
+        PrescriptionEdit.fromJson(item as Map<String, dynamic>),
+    ];
+  }
 
   Future<List<ExercisePlan>> plans(String patientId) async {
     final json =

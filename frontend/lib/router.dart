@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'features/account/security_page.dart';
+import 'features/account/set_password_screen.dart';
 import 'features/admin/admin_pages.dart';
 import 'features/admin/exercise_form_page.dart';
 import 'features/admin/exercise_library_page.dart';
+import 'features/admin/users_page.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_models.dart';
 import 'features/auth/ui/choose_role_screen.dart';
@@ -22,6 +25,9 @@ import 'features/shell/role_shell.dart';
 
 /// Full-screen advisory a patient must acknowledge before using the app.
 const advisoryPath = '/patient/advisory';
+
+/// Where someone holding a temporary password chooses their own.
+const setPasswordPath = '/set-password';
 
 bool _isPublic(String location) =>
     location == '/' ||
@@ -46,6 +52,11 @@ String? redirectFor(AuthState auth, String location) {
     return _isPublic(location) ? null : '/sign-in';
   }
   final home = auth.user.account.role.homePath;
+  if (auth.user.passwordChangeRequired) {
+    // A temporary password opens nothing but the screen that replaces it.
+    return location == setPasswordPath ? null : setPasswordPath;
+  }
+  if (location == setPasswordPath) return home;
   if (auth.user.needsAdvisory) {
     // Nothing else opens until the advisory has been acknowledged.
     return location == advisoryPath ? null : advisoryPath;
@@ -108,7 +119,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
       ),
-      // Outside the patient shell on purpose: no sidebar, nowhere else to go.
+      // Outside the shells on purpose: no sidebar, nowhere else to go.
+      GoRoute(
+        path: setPasswordPath,
+        builder: (context, state) => const SetPasswordScreen(),
+      ),
       GoRoute(
         path: advisoryPath,
         builder: (context, state) => const AdvisoryScreen(),
@@ -137,6 +152,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           'You will be able to share feedback here.',
         ),
         page('/patient/help', const PatientHelpPage()),
+        page('/patient/security', const SecurityPage()),
       ]),
       area(UserRole.physiotherapist, [
         page('/physio', const PhysioDashboardPage()),
@@ -166,6 +182,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           'Patient Feedback',
           'Feedback from your patients will appear here.',
         ),
+        page('/physio/security', const SecurityPage()),
       ]),
       area(UserRole.admin, [
         page('/admin', const AdminOverviewPage()),
@@ -186,6 +203,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           'Feedback from all patients will appear here.',
         ),
         page('/admin/audit-log', const AdminAuditLogPage()),
+        page('/admin/security', const SecurityPage()),
       ]),
     ],
   );

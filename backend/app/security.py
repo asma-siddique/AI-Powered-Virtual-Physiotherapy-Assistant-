@@ -1,4 +1,5 @@
 import hashlib
+import re
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -39,6 +40,26 @@ def burn_password_check(password: str) -> None:
     """Spend the same work as a real check when the account does not exist, so
     response time does not reveal whether an identifier is registered."""
     verify_password(_dummy_hash(), password)
+
+
+def password_problem(password: str) -> str | None:
+    """Why a password does not meet the policy, or None when it does."""
+    if len(password) < 8 or not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
+        return "Use at least 8 characters, including a letter and a number."
+    return None
+
+
+# No 0/O or 1/I/l: a temporary password is read out or copied by hand.
+_TEMPORARY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+
+
+def new_temporary_password() -> str:
+    """A one-time password for an admin to pass on. The account it is set on
+    must choose its own password before doing anything else."""
+    while True:
+        chars = "".join(secrets.choice(_TEMPORARY_ALPHABET) for _ in range(12))
+        if password_problem(chars) is None:
+            return f"{chars[:4]}-{chars[4:8]}-{chars[8:]}"
 
 
 def sha256_hex(value: str) -> str:

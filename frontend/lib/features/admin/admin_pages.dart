@@ -7,13 +7,14 @@ import '../../core/widgets/common.dart';
 import '../auth/auth_models.dart';
 import '../shell/page_widgets.dart';
 import 'admin_repository.dart';
+import 'user_management_repository.dart';
 
 class AdminOverviewPage extends ConsumerWidget {
   const AdminOverviewPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final users = ref.watch(adminUsersProvider);
+    final users = ref.watch(managedUsersProvider);
     final audit = ref.watch(auditLogProvider);
     String count(UserRole? role) {
       final list = users.valueOrNull;
@@ -153,96 +154,6 @@ class _AuditRow extends StatelessWidget {
             style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class AdminUsersPage extends ConsumerWidget {
-  const AdminUsersPage({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final users = ref.watch(adminUsersProvider);
-    return AppCard(
-      child: AsyncSection(
-        value: users,
-        onRetry: () => ref.invalidate(adminUsersProvider),
-        builder: (accounts) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${accounts.length} user${accounts.length == 1 ? '' : 's'}',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Creating, deactivating and reassigning accounts arrives with user management.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: AppColors.textMuted),
-            ),
-            const SizedBox(height: 8),
-            for (final account in accounts)
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: const BoxDecoration(
-                  border: Border(top: BorderSide(color: AppColors.divider)),
-                ),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: account.role.tint,
-                      child: Text(
-                        account.initials,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: account.role.accent,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            account.fullName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
-                            account.contact,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.textMuted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Pill(
-                      account.role.label,
-                      foreground: account.role.accent,
-                      background: account.role.tint,
-                    ),
-                    const SizedBox(width: 12),
-                    account.isActive
-                        ? const Pill.success('Active')
-                        : const Pill.neutral('Deactivated'),
-                  ],
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }

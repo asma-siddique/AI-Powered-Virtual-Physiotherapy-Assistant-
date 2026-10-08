@@ -1,20 +1,22 @@
 import uuid
 
 from fastapi import APIRouter, Request, Response, status
-from sqlalchemy import or_, select, update
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app import audit, auth_service, clock, errors
-from app.deps import CurrentAuth, DbSession, client_ip, session_problem
+from app import audit, auth_service, clock, devices, errors, notifications
+from app.deps import CurrentAuth, DbSession, ReadyAuth, client_ip, session_problem
 from app.identifiers import normalize_identifier
 from app.models import Account, AuthSession, InviteCode, PatientAssignment, Role
 from app.schemas import (
     AuthResponse,
+    ChangePasswordRequest,
     LoginRequest,
     MeResponse,
     RefreshRequest,
     RegisterRequest,
     SessionOut,
+    SignedOutCount,
     TokenPair,
 )
 from app.security import (
@@ -196,8 +198,66 @@ def me(auth: CurrentAuth, db: DbSession) -> MeResponse:
     return auth_service.me_response(db, auth.account)
 
 
+@router.post("/change-password", response_model=MeResponse)
+def change_password(
+    body: ChangePasswordRequest, request: Request, auth: CurrentAuth, db: DbSession
+) -> MeResponse:
+    """Replaces the password and signs the account out on every other device."""
+    account = auth.account
+    ip = client_ip(request)
+    # Guesses at the current password count like failed sign-ins, so a session
+    # left open on a shared computer cannot be used to work the password out.
+    subject_key = auth_service.subject_key_for(account, "")
+    until = auth_service.locked_until(db, subject_key)
+    if until is not None:
+        raise errors.account_locked(int((until - clock.utcnow()).total_seconds()) + 1)
+    if not verify_password(account.password_hash, body.current_password):
+        auth_service.record_attempt(db, subject_key, False, ip)
+        until = auth_service.locked_until(db, subject_key)
+        if until is not None:
+            auth_service.register_lockout(db, account, subject_key, ip)
+            db.commit()
+            raise errors.account_locked(int((until - clock.utcnow()).total_seconds()) + 1)
+        db.commit()
+        raise errors.ApiError(
+            status.HTTP_400_BAD_REQUEST,
+            "current_password_incorrect",
+            "Your current password is not correct.",
+        )
+    if body.new_password == body.current_password:
+        raise errors.ApiError(
+            status.HTTP_400_BAD_REQUEST,
+            "password_unchanged",
+            "Choose a password that is different from your current one.",
+        )
+
+    was_temporary = account.must_change_password
+    account.password_hash = hash_password(body.new_password)
+    account.must_change_password = False
+    signed_out = auth_service.revoke_sessions(db, account.id, keep=auth.session.id)
+    audit.record(
+        db,
+        "account.password_changed",
+        actor_id=account.id,
+        target_type="account",
+        target_id=account.id,
+        detail={"other_devices_signed_out": signed_out, "replaced_temporary_password": was_temporary},
+        ip=ip,
+    )
+    notifications.send(
+        db,
+        account.id,
+        notifications.SECURITY_PASSWORD_CHANGED,
+        "Your password was changed",
+        "Other devices were signed out. If you did not change it, tell your clinic straight away.",
+        link=notifications.security_link(account.role),
+    )
+    db.commit()
+    return auth_service.me_response(db, account)
+
+
 @router.get("/sessions", response_model=list[SessionOut])
-def list_sessions(auth: CurrentAuth, db: DbSession) -> list[SessionOut]:
+def list_sessions(auth: ReadyAuth, db: DbSession) -> list[SessionOut]:
     """The account's own device list: every session that can still be used."""
     sessions = db.execute(
         select(AuthSession)
@@ -209,7 +269,7 @@ def list_sessions(auth: CurrentAuth, db: DbSession) -> list[SessionOut]:
             id=s.id,
             created_at=s.created_at,
             last_seen_at=s.last_seen_at,
-            user_agent=s.user_agent,
+            device=devices.describe(s.user_agent),
             ip=s.ip,
             current=s.id == auth.session.id,
         )
@@ -218,18 +278,47 @@ def list_sessions(auth: CurrentAuth, db: DbSession) -> list[SessionOut]:
     ]
 
 
+@router.post("/sessions/revoke-others", response_model=SignedOutCount)
+def revoke_other_sessions(auth: ReadyAuth, request: Request, db: DbSession) -> SignedOutCount:
+    """Signs the account out everywhere except on the device making the request."""
+    signed_out = auth_service.revoke_sessions(db, auth.account.id, keep=auth.session.id)
+    if signed_out:
+        audit.record(
+            db,
+            "auth.session_revoked",
+            actor_id=auth.account.id,
+            target_type="account",
+            target_id=auth.account.id,
+            detail={"devices": signed_out},
+            ip=client_ip(request),
+        )
+    db.commit()
+    return SignedOutCount(signed_out=signed_out)
+
+
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def revoke_session(session_id: uuid.UUID, auth: CurrentAuth, db: DbSession) -> Response:
-    result = db.execute(
-        update(AuthSession)
+def revoke_session(session_id: uuid.UUID, auth: ReadyAuth, request: Request, db: DbSession) -> Response:
+    # Only ever the caller's own sessions: someone else's id is simply not found.
+    session = db.execute(
+        select(AuthSession)
         .where(
             AuthSession.id == session_id,
             AuthSession.account_id == auth.account.id,
             AuthSession.revoked_at.is_(None),
         )
-        .values(revoked_at=clock.utcnow())
+        .with_for_update()
+    ).scalar_one_or_none()
+    if session is None:
+        raise errors.not_found("That device does not exist or is already signed out.")
+    session.revoked_at = clock.utcnow()
+    audit.record(
+        db,
+        "auth.session_revoked",
+        actor_id=auth.account.id,
+        target_type="auth_session",
+        target_id=session.id,
+        detail={"device": devices.describe(session.user_agent)},
+        ip=client_ip(request),
     )
-    if result.rowcount == 0:
-        raise errors.not_found("That session does not exist or is already signed out.")
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

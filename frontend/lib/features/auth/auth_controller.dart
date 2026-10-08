@@ -103,6 +103,12 @@ class AuthController extends Notifier<AuthState> {
     }
   }
 
+  /// Call with what the server returned after a password change; a temporary
+  /// password no longer holds the person on the "choose a password" screen.
+  void passwordChanged(SessionUser user) {
+    if (state is SignedIn) state = SignedIn(user);
+  }
+
   Future<void> signOut() async {
     await _repository.signOut();
     state = const SignedOut();

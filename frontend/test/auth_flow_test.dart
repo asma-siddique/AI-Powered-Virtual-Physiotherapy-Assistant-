@@ -6,7 +6,10 @@ import 'package:physioai/app.dart';
 import 'package:physioai/core/api/api_client.dart';
 import 'package:physioai/core/api/api_exception.dart';
 import 'package:physioai/core/api/token_store.dart';
+import 'package:physioai/features/account/account_repository.dart';
+import 'package:physioai/features/admin/admin_repository.dart';
 import 'package:physioai/features/admin/exercise_library_repository.dart';
+import 'package:physioai/features/admin/user_management_repository.dart';
 import 'package:physioai/features/auth/auth_controller.dart';
 import 'package:physioai/features/auth/auth_models.dart';
 import 'package:physioai/features/auth/auth_repository.dart';
@@ -22,6 +25,7 @@ SessionUser user(
   String name, {
   String? physiotherapist,
   bool advisoryAcknowledged = true,
+  bool passwordChangeRequired = false,
 }) => SessionUser(
   account: Account(
     id: 'id-${role.apiValue}',
@@ -34,6 +38,7 @@ SessionUser user(
       : PersonRef(id: 'physio-1', fullName: physiotherapist),
   // Only patients are ever asked to acknowledge the advisory.
   advisoryAcknowledged: role == UserRole.patient ? advisoryAcknowledged : null,
+  passwordChangeRequired: passwordChangeRequired,
 );
 
 class FakeAuthRepository implements AuthRepository {
@@ -192,6 +197,317 @@ class FakePhysioRepository implements PhysioRepository {
     ];
     return plan;
   }
+
+  final prescriptionEditsMade = <String>[];
+  final editsByPlan = <String, List<PrescriptionEdit>>{};
+  ApiException? editFailure;
+
+  @override
+  Future<ExercisePlan> editPrescription({
+    required String patientId,
+    required String planId,
+    required String itemId,
+    required int sets,
+    required int reps,
+    required int restSeconds,
+    required Difficulty difficulty,
+    required String note,
+  }) async {
+    if (editFailure != null) throw editFailure!;
+    prescriptionEditsMade.add(
+      '$itemId $sets x $reps rest $restSeconds ${difficulty.apiValue} "$note"',
+    );
+    final now = DateTime(2026, 10, 9, 15);
+    final plans = plansByPatient[patientId]!;
+    final old = plans.firstWhere((p) => p.id == planId);
+    final before = old.items.firstWhere((i) => i.id == itemId);
+    final after = PlanItem(
+      id: before.id,
+      position: before.position,
+      exercise: before.exercise,
+      sets: sets,
+      reps: reps,
+      restSeconds: restSeconds,
+      difficulty: difficulty,
+      note: note.isEmpty ? null : note,
+      revision: before.revision + 1,
+      updatedAt: now,
+    );
+    final saved = ExercisePlan(
+      id: old.id,
+      name: old.name,
+      createdAt: old.createdAt,
+      isActive: old.isActive,
+      assignedBy: old.assignedBy,
+      items: [for (final i in old.items) i.id == itemId ? after : i],
+    );
+    plansByPatient[patientId] = [
+      for (final p in plans) p.id == planId ? saved : p,
+    ];
+    // As on the server: what each changed field was before is kept.
+    editsByPlan
+        .putIfAbsent(planId, () => [])
+        .add(
+          PrescriptionEdit(
+            id: 100 + prescriptionEditsMade.length,
+            itemId: itemId,
+            exerciseName: before.exercise.name,
+            editedAt: now,
+            editedBy: old.assignedBy,
+            revision: after.revision,
+            changes: [
+              if (before.sets != sets)
+                FieldChange(field: 'sets', before: before.sets, after: sets),
+              if (before.reps != reps)
+                FieldChange(field: 'reps', before: before.reps, after: reps),
+              if (before.restSeconds != restSeconds)
+                FieldChange(
+                  field: 'rest_seconds',
+                  before: before.restSeconds,
+                  after: restSeconds,
+                ),
+              if (before.difficulty != difficulty)
+                FieldChange(
+                  field: 'difficulty',
+                  before: before.difficulty.apiValue,
+                  after: difficulty.apiValue,
+                ),
+              if (before.note != after.note)
+                FieldChange(
+                  field: 'note',
+                  before: before.note,
+                  after: after.note,
+                ),
+            ],
+          ),
+        );
+    return saved;
+  }
+
+  @override
+  Future<List<PrescriptionEdit>> prescriptionEdits({
+    required String patientId,
+    required String planId,
+  }) async => List.of(editsByPlan[planId] ?? const []);
+}
+
+/// The signed-in person's own password and devices.
+class FakeAccountRepository implements AccountRepository {
+  FakeAccountRepository({List<Device>? devices, this.signedIn})
+    : deviceList =
+          devices ??
+          [
+            Device(
+              id: 'this',
+              name: 'Chrome on Windows',
+              signedInAt: DateTime(2026, 10, 9, 9),
+              lastActiveAt: DateTime(2026, 10, 9, 9, 30),
+              current: true,
+              ip: '203.0.113.7',
+            ),
+          ];
+
+  List<Device> deviceList;
+
+  /// Who the server says is signed in once the password has been changed.
+  SessionUser? signedIn;
+  ApiException? failure;
+  final passwordChanges = <({String current, String next})>[];
+
+  @override
+  Future<SessionUser> changePassword({
+    required String current,
+    required String next,
+  }) async {
+    passwordChanges.add((current: current, next: next));
+    if (failure != null) throw failure!;
+    // As on the server: every other device is signed out.
+    deviceList = [
+      for (final d in deviceList)
+        if (d.current) d,
+    ];
+    return signedIn ?? user(UserRole.patient, 'Jane Cooper');
+  }
+
+  @override
+  Future<List<Device>> devices() async => List.of(deviceList);
+
+  @override
+  Future<void> signOutDevice(String id) async {
+    if (failure != null) throw failure!;
+    deviceList = [
+      for (final d in deviceList)
+        if (d.id != id) d,
+    ];
+  }
+
+  @override
+  Future<int> signOutOtherDevices() async {
+    if (failure != null) throw failure!;
+    final others = deviceList.where((d) => !d.current).length;
+    deviceList = [
+      for (final d in deviceList)
+        if (d.current) d,
+    ];
+    return others;
+  }
+}
+
+ManagedUser managed(
+  String id,
+  String name,
+  UserRole role, {
+  bool active = true,
+  bool temporaryPassword = false,
+  String? physiotherapistId,
+  String? physiotherapist,
+  int? patients,
+  String? email,
+  DateTime? lastSeen,
+}) => ManagedUser(
+  account: Account(
+    id: id,
+    fullName: name,
+    role: role,
+    email: email ?? '$id@example.test',
+    isActive: active,
+  ),
+  mustChangePassword: temporaryPassword,
+  lastSeenAt: lastSeen,
+  physiotherapist: physiotherapistId == null
+      ? null
+      : PersonRef(id: physiotherapistId, fullName: physiotherapist ?? ''),
+  patientCount: role == UserRole.physiotherapist ? (patients ?? 0) : null,
+);
+
+/// What an admin can do to accounts, kept in memory.
+class FakeUserManagementRepository implements UserManagementRepository {
+  FakeUserManagementRepository([List<ManagedUser>? users]) : list = users ?? [];
+
+  List<ManagedUser> list;
+  ApiException? failure;
+  final calls = <String>[];
+
+  ManagedUser _replace(
+    String id,
+    ManagedUser Function(ManagedUser old) change,
+  ) {
+    final saved = change(list.firstWhere((u) => u.id == id));
+    list = [for (final u in list) u.id == id ? saved : u];
+    return saved;
+  }
+
+  ManagedUser _copy(
+    ManagedUser old, {
+    String? fullName,
+    String? email,
+    UserRole? role,
+    bool? active,
+    bool? temporaryPassword,
+    PersonRef? physiotherapist,
+  }) => ManagedUser(
+    account: Account(
+      id: old.id,
+      fullName: fullName ?? old.fullName,
+      role: role ?? old.role,
+      email: email ?? old.account.email,
+      mobile: old.account.mobile,
+      isActive: active ?? old.isActive,
+    ),
+    mustChangePassword: temporaryPassword ?? old.mustChangePassword,
+    lastSeenAt: old.lastSeenAt,
+    physiotherapist: physiotherapist ?? old.physiotherapist,
+    patientCount: (role ?? old.role) == UserRole.physiotherapist
+        ? (old.patientCount ?? 0)
+        : null,
+  );
+
+  @override
+  Future<List<ManagedUser>> users() async => List.of(list);
+
+  @override
+  Future<IssuedPassword> create({
+    required String fullName,
+    required String identifier,
+    required UserRole role,
+    String? physiotherapistId,
+  }) async {
+    calls.add(
+      'create $fullName $identifier ${role.apiValue} $physiotherapistId',
+    );
+    if (failure != null) throw failure!;
+    final created = managed(
+      'new-${list.length}',
+      fullName,
+      role,
+      email: identifier,
+      temporaryPassword: true,
+      physiotherapistId: physiotherapistId,
+      physiotherapist: physiotherapistId == null
+          ? null
+          : list.firstWhere((u) => u.id == physiotherapistId).fullName,
+    );
+    list = [...list, created];
+    return (user: created, temporaryPassword: 'Temp-4821-Kite');
+  }
+
+  @override
+  Future<ManagedUser> update(
+    String id, {
+    required String fullName,
+    required String email,
+    required String mobile,
+  }) async {
+    calls.add('update $id $fullName $email $mobile');
+    if (failure != null) throw failure!;
+    return _replace(id, (old) => _copy(old, fullName: fullName, email: email));
+  }
+
+  @override
+  Future<ManagedUser> setActive(String id, {required bool active}) async {
+    calls.add('${active ? 'activate' : 'deactivate'} $id');
+    if (failure != null) throw failure!;
+    return _replace(id, (old) => _copy(old, active: active));
+  }
+
+  @override
+  Future<ManagedUser> changeRole(String id, UserRole role) async {
+    calls.add('role $id ${role.apiValue}');
+    if (failure != null) throw failure!;
+    return _replace(id, (old) => _copy(old, role: role));
+  }
+
+  @override
+  Future<ManagedUser> reassign(String id, String physiotherapistId) async {
+    calls.add('reassign $id $physiotherapistId');
+    if (failure != null) throw failure!;
+    final physio = list.firstWhere((u) => u.id == physiotherapistId);
+    return _replace(
+      id,
+      (old) => _copy(
+        old,
+        physiotherapist: PersonRef(id: physio.id, fullName: physio.fullName),
+      ),
+    );
+  }
+
+  @override
+  Future<String> resetPassword(String id) async {
+    calls.add('reset $id');
+    if (failure != null) throw failure!;
+    _replace(id, (old) => _copy(old, temporaryPassword: true));
+    return 'Temp-7733-Reed';
+  }
+}
+
+class FakeAdminRepository implements AdminRepository {
+  FakeAdminRepository([List<AuditEntry>? entries]) : entries = entries ?? [];
+
+  List<AuditEntry> entries;
+
+  @override
+  Future<List<AuditEntry>> auditLog({int limit = 50}) async =>
+      entries.take(limit).toList();
 }
 
 class FakeNotificationsRepository implements NotificationsRepository {
@@ -387,6 +703,9 @@ Future<FakeAuthRepository> pumpApp(
   FakePatientRepository? patient,
   FakeNotificationsRepository? notifications,
   FakeExerciseLibraryRepository? library,
+  FakeAccountRepository? account,
+  FakeUserManagementRepository? users,
+  FakeAdminRepository? admin,
 }) async {
   tester.view.physicalSize = const Size(1400, 1100);
   tester.view.devicePixelRatio = 1;
@@ -394,6 +713,9 @@ Future<FakeAuthRepository> pumpApp(
   final repository = auth ?? FakeAuthRepository();
   await tester.pumpWidget(
     ProviderScope(
+      // A new key every time, so a test that starts the app more than once
+      // (one role after another) never carries the previous sign-in over.
+      key: UniqueKey(),
       overrides: [
         tokenStoreProvider.overrideWithValue(InMemoryTokenStore()),
         authRepositoryProvider.overrideWithValue(repository),
@@ -411,6 +733,15 @@ Future<FakeAuthRepository> pumpApp(
         ),
         exerciseLibraryRepositoryProvider.overrideWithValue(
           library ?? FakeExerciseLibraryRepository(),
+        ),
+        accountRepositoryProvider.overrideWithValue(
+          account ?? FakeAccountRepository(),
+        ),
+        userManagementRepositoryProvider.overrideWithValue(
+          users ?? FakeUserManagementRepository(),
+        ),
+        adminRepositoryProvider.overrideWithValue(
+          admin ?? FakeAdminRepository(),
         ),
       ],
       child: const PhysioAiApp(),

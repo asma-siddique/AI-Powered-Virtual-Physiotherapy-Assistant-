@@ -153,6 +153,21 @@ ThemeData buildAppTheme() {
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
     ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: AppColors.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 4,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        side: BorderSide(color: AppColors.divider),
+      ),
+      textStyle: TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        color: AppColors.text,
+      ),
+    ),
     dialogTheme: const DialogThemeData(
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,

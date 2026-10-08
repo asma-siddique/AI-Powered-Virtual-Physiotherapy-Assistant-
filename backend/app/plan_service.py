@@ -6,8 +6,24 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import audit, clock, errors, notifications
-from app.exercise_schemas import ExerciseBrief, PlanCreate, PlanItemOut, PlanOut
-from app.models import Account, ExercisePlan, ExerciseTemplate, PatientAssignment, PlanExercise
+from app.exercise_schemas import (
+    ExerciseBrief,
+    FieldChange,
+    PlanCreate,
+    PlanItemOut,
+    PlanOut,
+    PrescriptionEditOut,
+    PrescriptionUpdate,
+)
+from app.models import (
+    Account,
+    Difficulty,
+    ExercisePlan,
+    ExerciseTemplate,
+    PatientAssignment,
+    PlanExercise,
+    PrescriptionEdit,
+)
 from app.schemas import PersonRef
 
 
@@ -53,6 +69,8 @@ def to_out(db: Session, plan: ExercisePlan) -> PlanOut:
                 rest_seconds=item.rest_seconds,
                 difficulty=item.difficulty,
                 note=item.note,
+                revision=item.revision,
+                updated_at=item.updated_at,
             )
             for item, template in rows
         ],
@@ -78,6 +96,11 @@ def history(db: Session, patient_id: uuid.UUID) -> list[ExercisePlan]:
 
 
 def assign(db: Session, physio: Account, patient: Account, body: PlanCreate, ip: str | None) -> ExercisePlan:
+    if not patient.is_active:
+        raise errors.conflict(
+            "patient_inactive",
+            "This patient's account has been deactivated, so their plan cannot be changed.",
+        )
     exercise_ids = [item.exercise_id for item in body.items]
     # Shared row locks: an admin deactivating one of these exercises at the same
     # moment waits until this plan is saved, or this request sees it inactive.
@@ -168,3 +191,149 @@ def assign(db: Session, physio: Account, patient: Account, body: PlanCreate, ip:
     )
     db.commit()
     return plan
+
+
+_EDITABLE = ("sets", "reps", "rest_seconds", "difficulty", "note")
+
+
+def plan_of(db: Session, patient: Account, plan_id: uuid.UUID) -> ExercisePlan:
+    """One of this patient's plans, current or archived."""
+    plan = db.execute(
+        select(ExercisePlan).where(ExercisePlan.id == plan_id, ExercisePlan.patient_id == patient.id)
+    ).scalar_one_or_none()
+    if plan is None:
+        raise errors.not_found("Plan not found.")
+    return plan
+
+
+def _plain(value: object) -> int | str | None:
+    return value.value if isinstance(value, Difficulty) else value  # type: ignore[return-value]
+
+
+def _in_words(changes: dict[str, dict[str, int | str | None]]) -> str:
+    """ "sets 3 to 4, rest 60s to 90s" for the patient's notification. A note
+    is only mentioned, never quoted."""
+    parts = []
+    for field, change in changes.items():
+        before, after = change["from"], change["to"]
+        if field == "note":
+            parts.append("the note")
+        elif field == "rest_seconds":
+            parts.append(f"rest {before}s to {after}s")
+        elif field == "difficulty":
+            parts.append(f"difficulty {before} to {after}")
+        else:
+            parts.append(f"{field} {before} to {after}")
+    return ", ".join(parts)
+
+
+def edit_item(
+    db: Session,
+    physio: Account,
+    patient: Account,
+    plan: ExercisePlan,
+    item_id: uuid.UUID,
+    body: PrescriptionUpdate,
+    ip: str | None,
+) -> None:
+    """Changes one exercise's prescription in the patient's current plan. What
+    it was before is kept in prescription_edits; nothing is overwritten
+    without a record."""
+    if plan.archived_at is not None:
+        raise errors.conflict(
+            "plan_archived",
+            "This is no longer the patient's current plan, so it cannot be edited.",
+        )
+    if not patient.is_active:
+        raise errors.conflict(
+            "patient_inactive",
+            "This patient's account has been deactivated, so their plan cannot be changed.",
+        )
+    item = db.execute(
+        select(PlanExercise)
+        .where(PlanExercise.id == item_id, PlanExercise.plan_id == plan.id)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if item is None:
+        raise errors.not_found("That exercise is not part of this plan.")
+
+    changes: dict[str, dict[str, int | str | None]] = {}
+    for field in _EDITABLE:
+        if field not in body.model_fields_set:
+            continue
+        new, old = getattr(body, field), getattr(item, field)
+        if new != old:
+            changes[field] = {"from": _plain(old), "to": _plain(new)}
+            setattr(item, field, new)
+    if not changes:
+        return
+
+    now = clock.utcnow()
+    item.revision += 1
+    item.updated_at = now
+    db.add(
+        PrescriptionEdit(
+            plan_id=plan.id,
+            plan_exercise_id=item.id,
+            edited_by=physio.id,
+            edited_at=now,
+            revision=item.revision,
+            changes=changes,
+        )
+    )
+    audit.record(
+        db,
+        "plan.prescription_edited",
+        actor_id=physio.id,
+        target_type="plan_exercise",
+        target_id=item.id,
+        detail={
+            "patient_id": str(patient.id),
+            "plan_id": str(plan.id),
+            "revision": item.revision,
+            # What a physiotherapist writes to a patient stays out of the audit
+            # log: it records that the note changed, not what it says.
+            "changes": {
+                field: ({"changed": True} if field == "note" else change) for field, change in changes.items()
+            },
+        },
+        ip=ip,
+    )
+    exercise = db.get(ExerciseTemplate, item.exercise_template_id)
+    notifications.send(
+        db,
+        patient.id,
+        notifications.PLAN_UPDATED,
+        "Your exercise plan was updated",
+        f"{physio.full_name} changed {exercise.name}: {_in_words(changes)}.",
+        link="/patient/plan",
+    )
+    db.commit()
+
+
+def edits(db: Session, plan: ExercisePlan) -> list[PrescriptionEditOut]:
+    """Every edit made to the plan's prescriptions, oldest first."""
+    rows = db.execute(
+        select(PrescriptionEdit, Account, ExerciseTemplate.name)
+        .join(Account, Account.id == PrescriptionEdit.edited_by)
+        .join(PlanExercise, PlanExercise.id == PrescriptionEdit.plan_exercise_id)
+        .join(ExerciseTemplate, ExerciseTemplate.id == PlanExercise.exercise_template_id)
+        .where(PrescriptionEdit.plan_id == plan.id)
+        .order_by(PrescriptionEdit.edited_at, PrescriptionEdit.id)
+    ).all()
+    return [
+        PrescriptionEditOut(
+            id=edit.id,
+            item_id=edit.plan_exercise_id,
+            exercise_name=exercise_name,
+            edited_at=edit.edited_at,
+            edited_by=PersonRef.model_validate(editor),
+            revision=edit.revision,
+            changes=[
+                FieldChange(field=field, before=edit.changes[field]["from"], after=edit.changes[field]["to"])
+                for field in _EDITABLE
+                if field in edit.changes
+            ],
+        )
+        for edit, editor, exercise_name in rows
+    ]
