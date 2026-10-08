@@ -9,10 +9,15 @@ import 'features/auth/ui/choose_role_screen.dart';
 import 'features/auth/ui/register_screen.dart';
 import 'features/auth/ui/sign_in_screen.dart';
 import 'features/auth/ui/welcome_screen.dart';
+import 'features/consent/advisory_screen.dart';
+import 'features/consent/help_page.dart';
 import 'features/patient/patient_home_page.dart';
 import 'features/physio/physio_pages.dart';
 import 'features/shell/page_widgets.dart';
 import 'features/shell/role_shell.dart';
+
+/// Full-screen advisory a patient must acknowledge before using the app.
+const advisoryPath = '/patient/advisory';
 
 bool _isPublic(String location) =>
     location == '/' ||
@@ -37,6 +42,11 @@ String? redirectFor(AuthState auth, String location) {
     return _isPublic(location) ? null : '/sign-in';
   }
   final home = auth.user.account.role.homePath;
+  if (auth.user.needsAdvisory) {
+    // Nothing else opens until the advisory has been acknowledged.
+    return location == advisoryPath ? null : advisoryPath;
+  }
+  if (location == advisoryPath) return home;
   final insideOwnArea = location == home || location.startsWith('$home/');
   return insideOwnArea ? null : home;
 }
@@ -88,6 +98,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
       ),
+      // Outside the patient shell on purpose: no sidebar, nowhere else to go.
+      GoRoute(
+        path: advisoryPath,
+        builder: (context, state) => const AdvisoryScreen(),
+      ),
       area(UserRole.patient, [
         page('/patient', const PatientHomePage()),
         soon(
@@ -115,6 +130,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           'Feedback',
           'You will be able to share feedback here.',
         ),
+        page('/patient/help', const PatientHelpPage()),
       ]),
       area(UserRole.physiotherapist, [
         page('/physio', const PhysioDashboardPage()),

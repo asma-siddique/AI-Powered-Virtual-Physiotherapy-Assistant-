@@ -9,27 +9,38 @@ import 'package:physioai/core/api/token_store.dart';
 import 'package:physioai/features/auth/auth_controller.dart';
 import 'package:physioai/features/auth/auth_models.dart';
 import 'package:physioai/features/auth/auth_repository.dart';
+import 'package:physioai/features/consent/consent_repository.dart';
 import 'package:physioai/features/physio/physio_repository.dart';
 import 'package:physioai/router.dart';
 
-SessionUser user(UserRole role, String name, {String? physiotherapist}) =>
-    SessionUser(
-      account: Account(
-        id: 'id-${role.apiValue}',
-        fullName: name,
-        role: role,
-        email: '${role.apiValue}@example.test',
-      ),
-      physiotherapist: physiotherapist == null
-          ? null
-          : PersonRef(id: 'physio-1', fullName: physiotherapist),
-    );
+SessionUser user(
+  UserRole role,
+  String name, {
+  String? physiotherapist,
+  bool advisoryAcknowledged = true,
+}) => SessionUser(
+  account: Account(
+    id: 'id-${role.apiValue}',
+    fullName: name,
+    role: role,
+    email: '${role.apiValue}@example.test',
+  ),
+  physiotherapist: physiotherapist == null
+      ? null
+      : PersonRef(id: 'physio-1', fullName: physiotherapist),
+  // Only patients are ever asked to acknowledge the advisory.
+  advisoryAcknowledged: role == UserRole.patient ? advisoryAcknowledged : null,
+);
 
 class FakeAuthRepository implements AuthRepository {
-  FakeAuthRepository({this.saved});
+  FakeAuthRepository({this.saved, this.patientNeedsAdvisory = false});
 
   SessionUser? saved;
   ApiException? failure;
+
+  /// When true, patients come back from sign-in and registration without an
+  /// acknowledged advisory, as a real new patient does.
+  bool patientNeedsAdvisory;
   final signIns = <({String identifier, String password, UserRole role})>[];
   final registrations =
       <
@@ -53,6 +64,14 @@ class FakeAuthRepository implements AuthRepository {
   }) async {
     signIns.add((identifier: identifier, password: password, role: role));
     if (failure != null) throw failure!;
+    if (role == UserRole.patient) {
+      return user(
+        role,
+        'Jane Cooper',
+        physiotherapist: 'Dr. Sarah Malik',
+        advisoryAcknowledged: !patientNeedsAdvisory,
+      );
+    }
     return user(role, 'Dr. Sarah Malik');
   }
 
@@ -70,7 +89,12 @@ class FakeAuthRepository implements AuthRepository {
       inviteCode: inviteCode,
     ));
     if (failure != null) throw failure!;
-    return user(UserRole.patient, fullName, physiotherapist: 'Dr. Sarah Malik');
+    return user(
+      UserRole.patient,
+      fullName,
+      physiotherapist: 'Dr. Sarah Malik',
+      advisoryAcknowledged: !patientNeedsAdvisory,
+    );
   }
 
   @override
@@ -101,10 +125,51 @@ class FakePhysioRepository implements PhysioRepository {
   Future<List<PatientSummary>> patients() async => const [];
 }
 
+class FakeConsentRepository implements ConsentRepository {
+  static const disclaimer = Disclaimer(
+    version: '2026-10',
+    title: 'Before your first session',
+    intro: 'A few things to know so you can exercise safely and confidently.',
+    points: [
+      DisclaimerPoint(
+        heading: 'PhysioAI gives movement feedback.',
+        body: 'It suggests small corrections in real time.',
+      ),
+      DisclaimerPoint(
+        heading: 'It does not diagnose.',
+        body: 'It does not replace your physiotherapist.',
+      ),
+    ],
+    caution: 'If you feel sharp pain, stop and contact your physiotherapist.',
+    acknowledgment:
+        'I understand that PhysioAI provides movement feedback only.',
+  );
+
+  DateTime? acknowledgedAt;
+  ApiException? failure;
+  final acknowledgedVersions = <String>[];
+
+  @override
+  Future<ConsentStatus> status() async => ConsentStatus(
+    disclaimer: disclaimer,
+    acknowledged: acknowledgedAt != null,
+    acknowledgedAt: acknowledgedAt,
+  );
+
+  @override
+  Future<ConsentStatus> acknowledge(String version) async {
+    if (failure != null) throw failure!;
+    acknowledgedVersions.add(version);
+    acknowledgedAt = DateTime(2026, 10, 8, 18, 30);
+    return status();
+  }
+}
+
 Future<FakeAuthRepository> pumpApp(
   WidgetTester tester, {
   FakeAuthRepository? auth,
   FakePhysioRepository? physio,
+  FakeConsentRepository? consent,
 }) async {
   tester.view.physicalSize = const Size(1400, 1100);
   tester.view.devicePixelRatio = 1;
@@ -117,6 +182,9 @@ Future<FakeAuthRepository> pumpApp(
         authRepositoryProvider.overrideWithValue(repository),
         physioRepositoryProvider.overrideWithValue(
           physio ?? FakePhysioRepository(),
+        ),
+        consentRepositoryProvider.overrideWithValue(
+          consent ?? FakeConsentRepository(),
         ),
       ],
       child: const PhysioAiApp(),
