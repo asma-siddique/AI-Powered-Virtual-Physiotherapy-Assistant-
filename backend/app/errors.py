@@ -78,3 +78,19 @@ def forbidden() -> ApiError:
 
 def not_found(what: str = "Not found.") -> ApiError:
     return ApiError(status.HTTP_404_NOT_FOUND, "not_found", what)
+
+
+def consent_required() -> ApiError:
+    return ApiError(
+        status.HTTP_403_FORBIDDEN,
+        "consent_required",
+        "Read and acknowledge the advisory before starting a session.",
+    )
+
+
+def disclaimer_outdated() -> ApiError:
+    return ApiError(
+        status.HTTP_409_CONFLICT,
+        "disclaimer_outdated",
+        "The advisory has been updated. Please read the latest version.",
+    )

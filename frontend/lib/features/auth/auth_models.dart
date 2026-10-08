@@ -100,17 +100,36 @@ class PersonRef {
   final String fullName;
 }
 
-/// The signed-in person, plus (for patients) their physiotherapist.
+/// The signed-in person, plus (for patients) their physiotherapist and
+/// whether they have acknowledged the advisory.
 class SessionUser {
-  const SessionUser({required this.account, this.physiotherapist});
+  const SessionUser({
+    required this.account,
+    this.physiotherapist,
+    this.advisoryAcknowledged,
+  });
 
   factory SessionUser.fromJson(Map<String, dynamic> json) => SessionUser(
     account: Account.fromJson(json['account'] as Map<String, dynamic>),
     physiotherapist: json['physiotherapist'] == null
         ? null
         : PersonRef.fromJson(json['physiotherapist'] as Map<String, dynamic>),
+    advisoryAcknowledged: json['advisory_acknowledged'] as bool?,
   );
 
   final Account account;
   final PersonRef? physiotherapist;
+
+  /// Null for physiotherapists and admins, who are never asked.
+  final bool? advisoryAcknowledged;
+
+  /// True while a patient still has to read and acknowledge the advisory.
+  bool get needsAdvisory =>
+      account.role == UserRole.patient && advisoryAcknowledged == false;
+
+  SessionUser copyWith({bool? advisoryAcknowledged}) => SessionUser(
+    account: account,
+    physiotherapist: physiotherapist,
+    advisoryAcknowledged: advisoryAcknowledged ?? this.advisoryAcknowledged,
+  );
 }

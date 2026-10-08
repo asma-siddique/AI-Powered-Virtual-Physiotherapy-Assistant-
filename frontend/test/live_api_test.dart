@@ -13,6 +13,7 @@ import 'package:physioai/core/api/token_store.dart';
 import 'package:physioai/features/admin/admin_repository.dart';
 import 'package:physioai/features/auth/auth_models.dart';
 import 'package:physioai/features/auth/auth_repository.dart';
+import 'package:physioai/features/consent/consent_repository.dart';
 import 'package:physioai/features/physio/physio_repository.dart';
 
 const _live = bool.fromEnvironment('LIVE_API');
@@ -80,6 +81,31 @@ void main() {
       expect(patient.physiotherapist?.fullName, physio.account.fullName);
       expect((await patientAuth.restore())?.account.id, patient.account.id);
 
+      // A new patient has not acknowledged the advisory; doing so is explicit,
+      // tied to the wording they were shown, and remembered by the server.
+      expect(patient.advisoryAcknowledged, isFalse);
+      expect(physio.advisoryAcknowledged, isNull);
+      final consent = ConsentRepository(patientApi);
+      final advisory = await consent.status();
+      expect(advisory.acknowledged, isFalse);
+      expect(advisory.disclaimer.points, isNotEmpty);
+      await expectLater(
+        consent.acknowledge('1999-01'),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.code,
+            'code',
+            'disclaimer_outdated',
+          ),
+        ),
+      );
+      final acknowledged = await consent.acknowledge(
+        advisory.disclaimer.version,
+      );
+      expect(acknowledged.acknowledged, isTrue);
+      expect(acknowledged.acknowledgedAt, isNotNull);
+      expect((await patientAuth.restore())?.advisoryAcknowledged, isTrue);
+
       // The code cannot be used a second time.
       await expectLater(
         AuthRepository(_client()).register(
@@ -127,7 +153,11 @@ void main() {
       );
       expect(
         (await admin.auditLog()).map((e) => e.action),
-        containsAll(['account.registered', 'invite_code.created']),
+        containsAll([
+          'account.registered',
+          'invite_code.created',
+          'consent.acknowledged',
+        ]),
       );
 
       // Signing out ends the session on the server.

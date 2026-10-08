@@ -8,7 +8,9 @@ from app.db import Base, get_engine
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Migrations also run inside the API at start-up in development; do not
+    # switch off the loggers it already configured.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

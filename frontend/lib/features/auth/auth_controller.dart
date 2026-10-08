@@ -94,6 +94,15 @@ class AuthController extends Notifier<AuthState> {
     );
   }
 
+  /// Call once the server has recorded the patient's acknowledgment; the
+  /// router then lets them into the rest of the app.
+  void advisoryAcknowledged() {
+    final current = state;
+    if (current is SignedIn && current.user.needsAdvisory) {
+      state = SignedIn(current.user.copyWith(advisoryAcknowledged: true));
+    }
+  }
+
   Future<void> signOut() async {
     await _repository.signOut();
     state = const SignedOut();

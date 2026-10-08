@@ -16,6 +16,9 @@ RESTRICTED = [
     ("GET", "/api/v1/physio/patients/00000000-0000-0000-0000-000000000000", Role.physiotherapist),
     ("GET", "/api/v1/admin/users", Role.admin),
     ("GET", "/api/v1/admin/audit-log", Role.admin),
+    ("GET", "/api/v1/admin/consents", Role.admin),
+    ("GET", "/api/v1/patient/consent", Role.patient),
+    ("POST", "/api/v1/patient/consent", Role.patient),
 ]
 ANY_SIGNED_IN = [
     ("GET", "/api/v1/auth/me"),

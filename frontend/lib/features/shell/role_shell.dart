@@ -24,6 +24,7 @@ const navigationByRole = <UserRole, List<NavItem>>{
     NavItem('Progress', Icons.trending_up_rounded, '/patient/progress'),
     NavItem('Chat', Icons.chat_bubble_outline_rounded, '/patient/chat'),
     NavItem('Feedback', Icons.rate_review_outlined, '/patient/feedback'),
+    NavItem('Help', Icons.help_outline_rounded, '/patient/help'),
   ],
   UserRole.physiotherapist: [
     NavItem('Dashboard', Icons.dashboard_outlined, '/physio'),
