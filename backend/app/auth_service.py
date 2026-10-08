@@ -2,11 +2,12 @@ import logging
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app import audit, clock, consent_service, notifications
 from app.config import get_settings
+from app.deps import session_problem
 from app.models import Account, AuthSession, LoginAttempt, PatientAssignment, Role
 from app.schemas import AccountOut, AuthResponse, MeResponse, PersonRef, TokenPair
 from app.security import create_access_token, new_refresh_token, sha256_hex
@@ -70,7 +71,8 @@ def notify_account_locked(db: Session, account: Account) -> None:
         "Sign-in to your account was paused",
         f"Sign-in was paused for {settings.lockout_duration_minutes} minutes after "
         f"{settings.lockout_threshold} unsuccessful attempts. "
-        "If that was not you, tell your clinic.",
+        "If that was not you, change your password and tell your clinic.",
+        link=notifications.security_link(account.role),
     )
     log.warning("Account %s locked after repeated failed sign-in attempts", account.id)
 
@@ -88,6 +90,26 @@ def register_lockout(db: Session, account: Account | None, subject_key: str, ip:
     )
     if account:
         notify_account_locked(db, account)
+
+
+def clear_lockout(db: Session, account: Account) -> None:
+    """Forgets the account's sign-in attempts, so a password an admin has just
+    issued can be used straight away. The lockout itself stays in the audit log."""
+    db.execute(delete(LoginAttempt).where(LoginAttempt.subject_key == f"acct:{account.id}"))
+
+
+def revoke_sessions(db: Session, account_id: uuid.UUID, *, keep: uuid.UUID | None = None) -> int:
+    """Signs the account out everywhere, except on the session to keep. Returns
+    how many devices that could still be used were signed out."""
+    now = clock.utcnow()
+    query = select(AuthSession).where(AuthSession.account_id == account_id, AuthSession.revoked_at.is_(None))
+    if keep is not None:
+        query = query.where(AuthSession.id != keep)
+    usable = 0
+    for session in db.execute(query.with_for_update()).scalars():
+        usable += session_problem(session) is None
+        session.revoked_at = now
+    return usable
 
 
 def open_session(db: Session, account: Account, user_agent: str | None, ip: str | None) -> TokenPair:
@@ -127,6 +149,7 @@ def me_response(db: Session, account: Account) -> MeResponse:
         advisory_acknowledged=(
             consent_service.current_consent(db, account.id) is not None if is_patient else None
         ),
+        password_change_required=account.must_change_password,
     )
 
 

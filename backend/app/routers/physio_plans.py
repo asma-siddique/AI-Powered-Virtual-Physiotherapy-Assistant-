@@ -5,7 +5,13 @@ from sqlalchemy import select
 
 from app import plan_service
 from app.deps import DbSession, PhysioUser, client_ip
-from app.exercise_schemas import ExerciseBrief, PlanCreate, PlanOut
+from app.exercise_schemas import (
+    ExerciseBrief,
+    PlanCreate,
+    PlanOut,
+    PrescriptionEditOut,
+    PrescriptionUpdate,
+)
 from app.models import ExerciseTemplate
 
 router = APIRouter(prefix="/physio", tags=["physiotherapist: plans"])
@@ -36,3 +42,31 @@ def assign_plan(
 def list_plans(patient_id: uuid.UUID, physio: PhysioUser, db: DbSession) -> list[PlanOut]:
     patient = plan_service.patient_on_roster(db, physio.id, patient_id)
     return [plan_service.to_out(db, plan) for plan in plan_service.history(db, patient.id)]
+
+
+@router.patch("/patients/{patient_id}/plans/{plan_id}/items/{item_id}", response_model=PlanOut)
+def edit_prescription(
+    patient_id: uuid.UUID,
+    plan_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: PrescriptionUpdate,
+    physio: PhysioUser,
+    request: Request,
+    db: DbSession,
+) -> PlanOut:
+    """Adjusts sets, reps, rest, difficulty or the note of one exercise in the
+    patient's current plan. The previous values are kept in the plan's edit
+    history, and the change applies to sessions started from now on."""
+    patient = plan_service.patient_on_roster(db, physio.id, patient_id)
+    plan = plan_service.plan_of(db, patient, plan_id)
+    plan_service.edit_item(db, physio, patient, plan, item_id, body, client_ip(request))
+    return plan_service.to_out(db, plan)
+
+
+@router.get("/patients/{patient_id}/plans/{plan_id}/edits", response_model=list[PrescriptionEditOut])
+def list_prescription_edits(
+    patient_id: uuid.UUID, plan_id: uuid.UUID, physio: PhysioUser, db: DbSession
+) -> list[PrescriptionEditOut]:
+    """The plan's full edit history in the order the edits were made."""
+    patient = plan_service.patient_on_roster(db, physio.id, patient_id)
+    return plan_service.edits(db, plan_service.plan_of(db, patient, plan_id))

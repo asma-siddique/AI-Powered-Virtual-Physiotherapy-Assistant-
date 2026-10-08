@@ -20,7 +20,19 @@ Identity and access (user stories 1.1 to 1.4):
 - Every endpoint checks the caller's role on the server. A physiotherapist can only see their own patients.
 - A mandatory advisory for patients: until they tick the acknowledgment and continue, nothing else in the app opens. The acknowledgment is stored on the server with its timestamp and the version of the wording, and the same text can be re-read under Help.
 - Audit log entries for registrations, invite codes, lockouts and advisory acknowledgments.
-- A device list for each account, with per-session sign-out (API only so far).
+- Account & Security for every role: the devices the account is signed in on (sign out one, or all others), and changing the password, which signs out every other device. Wrong guesses at the current password count towards the same sign-in pause.
+
+User and role management for admins (user stories 7.3 and 1.3):
+
+- Users & Roles screen: search and filter accounts, add a patient, physiotherapist or admin, correct a name or contact, deactivate and reactivate, reassign a patient to another physiotherapist, change a staff role, and reset a password.
+- A new or reset account gets a temporary password that is shown to the admin once. Until its owner replaces it, the server refuses everything except reading their own profile, choosing a password and signing out.
+- Deactivating signs the account out everywhere and stops sign-in; nothing it created is removed. A physiotherapist who still has active patients cannot be deactivated or made an admin until those patients are reassigned.
+- Reassigning closes the old assignment and opens a new one in the same request, so the previous physiotherapist loses access and the new one gains it at once. The patient's plan carries over, and all three people are notified.
+- Roles change only between Physiotherapist and Admin. A patient account never becomes a staff account or the other way round, because it carries a physiotherapist link, consent and clinical records. The person is signed out so the new role applies immediately.
+- An admin cannot deactivate, demote or reset their own account, so the system can never be left without an admin.
+- Every one of these changes is written to the audit log with who did it and what changed.
+
+There is no email service yet, so a forgotten password is reset by an admin rather than by a self-service link.
 
 The advisory wording lives in `backend/app/disclaimer.py`. Changing it means bumping `CURRENT_VERSION` there, after which every patient is asked to acknowledge the new wording. Endpoints that start or record a live session must depend on `ConsentedPatient` (`backend/app/deps.py`), which refuses patients who have not acknowledged it.
 
@@ -30,16 +42,19 @@ Exercise library and plans (user stories 2.1, 2.3, 7.1 and 7.2):
 - Exercise Library for admins (in the admin panel only): see every exercise, switch one on or off (switching off asks first and explains the effect), and edit an exercise's profile and its RED / AMBER / INFO thresholds. Every edit makes a new version and is audited with the values before and after. A new exercise starts switched off, so physiotherapists are never offered one the scoring model cannot handle yet.
 - Plan Builder for physiotherapists: choose a patient, pick from the exercises that are switched on, set sets, reps, rest and difficulty, and assign. Assigning a new plan archives the previous one rather than replacing it, and a plan that contains an exercise since switched off is flagged.
 - Patients see their plan on Home and in full under My Exercise Plan.
+- Prescription editing (2.2): a physiotherapist adjusts the sets, reps, rest, difficulty or note of an exercise in the plan that is in force, without assigning a new plan. Every edit is stored with its time, who made it and the value each field had before, and the plan's change history shows them in order. Archived plans cannot be edited. The patient is notified and sees when each exercise was last updated.
+
+Each prescription carries a `revision` number that goes up with every edit. When live sessions are built, a session must store its own copy of the prescription and that revision at the moment it starts, which is what keeps a later edit from ever changing how a completed session was scored.
 
 In-app notifications:
 
 - A bell with an unread count for every role. Opening a notification marks it read and goes to the page it is about.
-- A patient is notified when a plan is assigned, and the plan on screen refreshes when that arrives. An account is notified when sign-in to it was paused.
+- A patient is notified when a plan is assigned or a prescription in it is edited, and the plan on screen refreshes when that arrives. Patients and physiotherapists are told when a patient is reassigned. An account is notified when sign-in to it was paused or its password was changed.
 - The app checks for new notifications once a minute while it is open. Push notifications (Firebase Cloud Messaging) are not built yet.
 
 The severity thresholds that ship with the five exercises are provisional starting values. They have not yet been derived from the REHAB24-6 labels or reviewed clinically; see the note at the top of `backend/migrations/versions/0003_exercise_templates_and_plans.py`.
 
-Not built yet: editing a prescription with its change history (2.2), a screen for the device list (1.2), admin user management (7.3), live sessions, progress, push notifications, chat and feedback.
+Not built yet: live sessions and the camera (3.1 to 3.4), scoring and the model (4.1 to 4.3), progress and review (5.1 to 5.3), push notifications, chat and feedback, and the security hardening of epic 8.
 
 ## Run it locally
 

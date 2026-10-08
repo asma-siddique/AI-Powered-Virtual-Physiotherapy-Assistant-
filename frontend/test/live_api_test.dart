@@ -11,7 +11,9 @@ import 'package:physioai/core/api/api_client.dart';
 import 'package:physioai/core/api/api_exception.dart';
 import 'package:physioai/core/api/token_store.dart';
 import 'package:physioai/features/admin/admin_repository.dart';
+import 'package:physioai/features/account/account_repository.dart';
 import 'package:physioai/features/admin/exercise_library_repository.dart';
+import 'package:physioai/features/admin/user_management_repository.dart';
 import 'package:physioai/features/auth/auth_models.dart';
 import 'package:physioai/features/auth/auth_repository.dart';
 import 'package:physioai/features/consent/consent_repository.dart';
@@ -191,6 +193,57 @@ void main() {
         ('Week 1', false),
       ]);
 
+      // Mid-plan the prescription is adjusted in place: the plan stays the
+      // same one, the earlier values are kept, and the patient is told.
+      final before = current!.items.first;
+      final adjusted = await physioRepo.editPrescription(
+        patientId: patient.account.id,
+        planId: current.id,
+        itemId: before.id,
+        sets: before.sets + 1,
+        reps: before.reps,
+        restSeconds: 90,
+        difficulty: Difficulty.hard,
+        note: 'Pause at the bottom.',
+      );
+      expect(adjusted.id, current.id);
+      expect(adjusted.items.first.revision, 2);
+      expect(adjusted.items.first.updatedAt, isNotNull);
+      expect(adjusted.items.last.wasEdited, isFalse);
+      final nowSeen = (await patientRepo.currentPlan())!.items.first;
+      expect((nowSeen.sets, nowSeen.restSeconds), (before.sets + 1, 90));
+      expect(nowSeen.note, 'Pause at the bottom.');
+      final edits = await physioRepo.prescriptionEdits(
+        patientId: patient.account.id,
+        planId: current.id,
+      );
+      expect(edits.single.exerciseName, 'Squats');
+      expect(edits.single.editedBy.fullName, physio.account.fullName);
+      expect(edits.single.changes.map((c) => c.field), [
+        'sets',
+        'rest_seconds',
+        'difficulty',
+        'note',
+      ]);
+      expect(edits.single.changes.first.description, 'Sets: 3 to 4');
+      expect((await notices.feed()).items.first.kind, 'plan_updated');
+      await expectLater(
+        physioRepo.editPrescription(
+          patientId: patient.account.id,
+          planId: weekOne.id,
+          itemId: weekOne.items.single.id,
+          sets: 5,
+          reps: 5,
+          restSeconds: 60,
+          difficulty: Difficulty.easy,
+          note: '',
+        ),
+        throwsA(
+          isA<ApiException>().having((e) => e.code, 'code', 'plan_archived'),
+        ),
+      );
+      expect(await physioRepo.plans(patient.account.id), hasLength(2));
+
       // The physiotherapist now sees the patient and the redeemed code.
       expect(
         (await physioRepo.patients()).map((p) => p.id),
@@ -210,16 +263,18 @@ void main() {
         role: UserRole.admin,
       );
       final admin = AdminRepository(adminApi);
-      expect(
-        (await admin.users()).map((u) => u.id),
-        contains(patient.account.id),
-      );
+      final listed = (await UserManagementRepository(
+        adminApi,
+      ).users()).firstWhere((u) => u.id == patient.account.id);
+      expect(listed.physiotherapist?.fullName, physio.account.fullName);
+      expect(listed.lastSeenAt, isNotNull);
       expect(
         (await admin.auditLog()).map((e) => e.action),
         containsAll([
           'account.registered',
           'invite_code.created',
           'consent.acknowledged',
+          'plan.prescription_edited',
         ]),
       );
 
@@ -312,5 +367,192 @@ void main() {
     },
     skip: _live ? false : 'Needs a running API: see tool/live_api_test.sh',
     timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  test(
+    'account management, temporary passwords and devices work against the live API',
+    () async {
+      Matcher refusedWith(String code) =>
+          throwsA(isA<ApiException>().having((e) => e.code, 'code', code));
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+
+      final adminApi = _client();
+      await AuthRepository(adminApi).signIn(
+        identifier: _adminEmail,
+        password: _adminPassword,
+        role: UserRole.admin,
+      );
+      final users = UserManagementRepository(adminApi);
+      final seededPhysio = (await users.users()).firstWhere(
+        (u) => u.account.email == _physioEmail,
+      );
+
+      // An admin creates a physiotherapist, who must replace the temporary
+      // password before anything else opens.
+      final omarEmail = 'omar-$stamp@physioai.test';
+      final issued = await users.create(
+        fullName: 'Omar Farooq',
+        identifier: omarEmail,
+        role: UserRole.physiotherapist,
+      );
+      expect(issued.user.mustChangePassword, isTrue);
+      expect(issued.user.patientCount, 0);
+      await expectLater(
+        users.create(
+          fullName: 'Someone Else',
+          identifier: omarEmail,
+          role: UserRole.admin,
+        ),
+        refusedWith('identifier_taken'),
+      );
+
+      final omarApi = _client();
+      final omarAuth = AuthRepository(omarApi);
+      final omar = await omarAuth.signIn(
+        identifier: omarEmail,
+        password: issued.temporaryPassword,
+        role: UserRole.physiotherapist,
+      );
+      expect(omar.passwordChangeRequired, isTrue);
+      await expectLater(
+        PhysioRepository(omarApi).patients(),
+        refusedWith('password_change_required'),
+      );
+      final omarAccount = AccountRepository(omarApi);
+      await expectLater(
+        omarAccount.changePassword(
+          current: 'not-the-one-1',
+          next: 'Chosen-2026',
+        ),
+        refusedWith('current_password_incorrect'),
+      );
+      final ready = await omarAccount.changePassword(
+        current: issued.temporaryPassword,
+        next: 'Chosen-2026',
+      );
+      expect(ready.passwordChangeRequired, isFalse);
+      expect(await PhysioRepository(omarApi).patients(), isEmpty);
+
+      // A patient created for him is on his roster at once.
+      final marcus = await users.create(
+        fullName: 'Marcus Johnson',
+        identifier: 'marcus-$stamp@physioai.test',
+        role: UserRole.patient,
+        physiotherapistId: issued.user.id,
+      );
+      expect(marcus.user.physiotherapist?.fullName, 'Omar Farooq');
+      expect((await PhysioRepository(omarApi).patients()).map((p) => p.id), [
+        marcus.user.id,
+      ]);
+
+      // Devices: a second sign-in is listed, and signing it out ends it.
+      final phoneApi = _client();
+      final phoneAuth = AuthRepository(phoneApi);
+      await phoneAuth.signIn(
+        identifier: omarEmail,
+        password: 'Chosen-2026',
+        role: UserRole.physiotherapist,
+      );
+      final devices = await omarAccount.devices();
+      expect(devices.map((d) => d.current), unorderedEquals([true, false]));
+      expect(devices.every((d) => d.name.isNotEmpty), isTrue);
+      await omarAccount.signOutDevice(devices.firstWhere((d) => !d.current).id);
+      expect(await phoneAuth.restore(), isNull);
+      expect((await omarAccount.devices()).single.current, isTrue);
+      await phoneAuth.signIn(
+        identifier: omarEmail,
+        password: 'Chosen-2026',
+        role: UserRole.physiotherapist,
+      );
+      expect(await omarAccount.signOutOtherDevices(), 1);
+
+      // He cannot be made an admin while he has a patient; after the patient
+      // is reassigned, both rosters change at once and the role can change.
+      await expectLater(
+        users.changeRole(issued.user.id, UserRole.admin),
+        refusedWith('has_active_patients'),
+      );
+      final moved = await users.reassign(marcus.user.id, seededPhysio.id);
+      expect(moved.physiotherapist?.id, seededPhysio.id);
+      expect(await PhysioRepository(omarApi).patients(), isEmpty);
+      final promoted = await users.changeRole(issued.user.id, UserRole.admin);
+      expect(promoted.role, UserRole.admin);
+      expect(await omarAuth.restore(), isNull); // signed out by the change
+      await expectLater(
+        AuthRepository(_client()).signIn(
+          identifier: omarEmail,
+          password: 'Chosen-2026',
+          role: UserRole.physiotherapist,
+        ),
+        refusedWith('invalid_credentials'),
+      );
+      final omarAsAdmin = _client();
+      await AuthRepository(omarAsAdmin).signIn(
+        identifier: omarEmail,
+        password: 'Chosen-2026',
+        role: UserRole.admin,
+      );
+      expect(await UserManagementRepository(omarAsAdmin).users(), isNotEmpty);
+
+      // Deactivating stops sign-in without saying why; reactivating restores it.
+      final marcusEmail = marcus.user.account.email!;
+      Future<SessionUser> marcusSignsIn(String password) =>
+          AuthRepository(_client()).signIn(
+            identifier: marcusEmail,
+            password: password,
+            role: UserRole.patient,
+          );
+      final off = await users.setActive(marcus.user.id, active: false);
+      expect(off.isActive, isFalse);
+      await expectLater(
+        marcusSignsIn(marcus.temporaryPassword),
+        refusedWith('invalid_credentials'),
+      );
+      final on = await users.setActive(marcus.user.id, active: true);
+      expect(on.isActive, isTrue);
+
+      // A reset issues a new temporary password and retires the old one.
+      final reset = await users.resetPassword(marcus.user.id);
+      expect(reset, isNot(marcus.temporaryPassword));
+      await expectLater(
+        marcusSignsIn(marcus.temporaryPassword),
+        refusedWith('invalid_credentials'),
+      );
+      expect((await marcusSignsIn(reset)).passwordChangeRequired, isTrue);
+
+      // An admin cannot remove their own access.
+      final me = (await AuthRepository(adminApi).restore())!.account.id;
+      await expectLater(
+        users.setActive(me, active: false),
+        refusedWith('own_account'),
+      );
+
+      final edited = await users.update(
+        marcus.user.id,
+        fullName: 'Marcus A. Johnson',
+        email: marcusEmail,
+        mobile: '',
+      );
+      expect(edited.fullName, 'Marcus A. Johnson');
+
+      expect(
+        (await AdminRepository(
+          adminApi,
+        ).auditLog(limit: 100)).map((e) => e.action),
+        containsAll([
+          'account.created',
+          'account.password_changed',
+          'auth.session_revoked',
+          'patient.reassigned',
+          'account.role_changed',
+          'account.deactivated',
+          'account.activated',
+          'account.password_reset',
+          'account.updated',
+        ]),
+      );
+    },
+    skip: _live ? false : 'Needs a running API: see tool/live_api_test.sh',
+    timeout: const Timeout(Duration(seconds: 90)),
   );
 }

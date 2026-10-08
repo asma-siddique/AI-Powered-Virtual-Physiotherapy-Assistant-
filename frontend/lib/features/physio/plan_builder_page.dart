@@ -7,6 +7,7 @@ import '../../core/widgets/common.dart';
 import '../exercises/exercise_models.dart';
 import '../shell/page_widgets.dart';
 import 'physio_repository.dart';
+import 'prescription_dialogs.dart';
 
 /// Where a physiotherapist builds a plan for one patient: pick exercises from
 /// the active library, set sets, reps, rest and difficulty, then assign it.
@@ -368,8 +369,6 @@ class _DraftCard extends StatelessWidget {
   final VoidCallback onRemove;
   final ValueChanged<int> onMove;
 
-  static const _restOptions = [0, 30, 45, 60, 90, 120];
-
   @override
   Widget build(BuildContext context) {
     void set(VoidCallback change) {
@@ -465,7 +464,7 @@ class _DraftCard extends StatelessWidget {
                     isDense: true,
                     isExpanded: true,
                     items: [
-                      for (final seconds in _restOptions)
+                      for (final seconds in restOptions)
                         DropdownMenuItem(
                           value: seconds,
                           child: Text(seconds == 0 ? 'None' : '$seconds s'),
@@ -604,7 +603,10 @@ class _History extends ConsumerWidget {
                     message: 'No plan has been assigned to this patient yet.',
                   )
                 : Column(
-                    children: [for (final plan in list) _PlanRow(plan: plan)],
+                    children: [
+                      for (final plan in list)
+                        _PlanRow(patient: patient, plan: plan),
+                    ],
                   ),
           ),
         ],
@@ -613,13 +615,33 @@ class _History extends ConsumerWidget {
   }
 }
 
-class _PlanRow extends StatelessWidget {
-  const _PlanRow({required this.plan});
+class _PlanRow extends ConsumerWidget {
+  const _PlanRow({required this.patient, required this.plan});
 
+  final PatientSummary patient;
   final ExercisePlan plan;
 
+  Future<void> _edit(BuildContext context, WidgetRef ref, PlanItem item) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final saved = await showDialog<ExercisePlan>(
+      context: context,
+      builder: (context) =>
+          EditPrescriptionDialog(patient: patient, plan: plan, item: item),
+    );
+    if (saved == null) return;
+    ref.invalidate(patientPlansProvider(patient.id));
+    ref.invalidate(planEditsProvider((patientId: patient.id, planId: plan.id)));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          '${item.exercise.name} was updated. ${patient.fullName} has been notified.',
+        ),
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dates = plan.archivedAt == null
         ? 'Assigned ${formatDate(plan.createdAt)}'
         : '${formatDate(plan.createdAt)} to ${formatDate(plan.archivedAt!)}';
@@ -657,15 +679,47 @@ class _PlanRow extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           for (final item in plan.items)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                '${item.position}. ${item.exercise.name}  ·  ${item.prescription}  ·  '
-                '${item.rest}  ·  ${item.difficulty.label}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textMuted,
+            Row(
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      '${item.position}. ${item.exercise.name}  ·  ${item.prescription}  ·  '
+                      '${item.rest}  ·  ${item.difficulty.label}'
+                      '${item.wasEdited ? '  ·  edited ${formatDate(item.updatedAt ?? plan.createdAt)}' : ''}',
+                      key: Key('plan-item-${item.id}'),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ),
                 ),
+                // Only the plan in force can change; an archived plan is a record.
+                if (plan.isActive)
+                  TextButton(
+                    key: Key('edit-item-${item.id}'),
+                    onPressed: patient.isActive
+                        ? () => _edit(context, ref, item)
+                        : null,
+                    child: const Text('Edit'),
+                  ),
+              ],
+            ),
+          if (plan.items.any((item) => item.wasEdited))
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: Key('plan-history-${plan.id}'),
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (context) =>
+                      PrescriptionHistoryDialog(patient: patient, plan: plan),
+                ),
+                icon: const Icon(Icons.history_rounded, size: 18),
+                label: const Text('Change history'),
               ),
             ),
           if (plan.isActive && plan.hasInactiveExercise) ...[

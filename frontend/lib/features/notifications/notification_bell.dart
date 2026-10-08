@@ -56,7 +56,11 @@ class _NotificationBellState extends ConsumerState<NotificationBell> {
         for (final n in previous?.valueOrNull?.items ?? const []) n.id,
       };
       final arrived = (next.valueOrNull?.items ?? const <AppNotification>[])
-          .where((n) => !seen.contains(n.id) && n.kind == 'plan_assigned');
+          .where(
+            (n) =>
+                !seen.contains(n.id) &&
+                (n.kind == 'plan_assigned' || n.kind == 'plan_updated'),
+          );
       if (previous?.valueOrNull != null && arrived.isNotEmpty) {
         ref.invalidate(patientPlanProvider);
       }

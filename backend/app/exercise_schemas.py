@@ -155,6 +155,29 @@ class PlanCreate(BaseModel):
         return items
 
 
+class PrescriptionUpdate(BaseModel):
+    """An edit to one exercise of a patient's current plan. Only the fields
+    that are sent change; an empty note removes the note."""
+
+    sets: int | None = Field(default=None, ge=1, le=10)
+    reps: int | None = Field(default=None, ge=1, le=50)
+    rest_seconds: int | None = Field(default=None, ge=0, le=600)
+    difficulty: Difficulty | None = None
+    note: str | None = Field(default=None, max_length=200)
+
+    @field_validator("note")
+    @classmethod
+    def _blank_note_is_none(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
+
+    @model_validator(mode="after")
+    def _numbers_cannot_be_removed(self) -> "PrescriptionUpdate":
+        for field in ("sets", "reps", "rest_seconds", "difficulty"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be empty.")
+        return self
+
+
 class PlanItemOut(BaseModel):
     id: uuid.UUID
     position: int
@@ -164,6 +187,28 @@ class PlanItemOut(BaseModel):
     rest_seconds: int
     difficulty: Difficulty
     note: str | None
+    # 1 as assigned, one higher for every edit since.
+    revision: int
+    # When the prescription was last edited; empty if it never was.
+    updated_at: datetime | None
+
+
+class FieldChange(BaseModel):
+    # sets | reps | rest_seconds | difficulty | note
+    field: str
+    before: int | str | None
+    after: int | str | None
+
+
+class PrescriptionEditOut(BaseModel):
+    id: int
+    item_id: uuid.UUID
+    exercise_name: str
+    edited_at: datetime
+    edited_by: PersonRef
+    # The revision of the prescription this edit produced.
+    revision: int
+    changes: list[FieldChange]
 
 
 class PlanOut(BaseModel):

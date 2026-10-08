@@ -80,15 +80,24 @@ class RoleShell extends ConsumerWidget {
           (best, item) => item.path.length > best.path.length ? item : best,
         );
     final wide = MediaQuery.sizeOf(context).width >= shellWideBreakpoint;
+    // Account & Security belongs to the person, not to the role's menu.
+    final securityPath = '${role.homePath}/security';
+    final onSecurity = location == securityPath;
+    final title = onSecurity ? 'Account & Security' : active.label;
 
     final sidebar = _Sidebar(
       role: role,
       items: items,
-      active: active,
+      active: onSecurity ? null : active,
       account: account,
+      securitySelected: onSecurity,
       onNavigate: (item) {
         if (!wide) Navigator.of(context).pop();
         context.go(item.path);
+      },
+      onOpenSecurity: () {
+        if (!wide) Navigator.of(context).pop();
+        context.go(securityPath);
       },
       onSignOut: () => ref.read(authControllerProvider.notifier).signOut(),
     );
@@ -96,10 +105,7 @@ class RoleShell extends ConsumerWidget {
     if (!wide) {
       return Scaffold(
         appBar: AppBar(
-          title: Text(
-            active.label,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
+          title: Text(title, style: Theme.of(context).textTheme.titleLarge),
           actions: const [NotificationBell(), SizedBox(width: 8)],
           shape: const Border(bottom: BorderSide(color: AppColors.divider)),
         ),
@@ -127,17 +133,36 @@ class RoleShell extends ConsumerWidget {
                   child: Row(
                     children: [
                       Text(
-                        active.label,
+                        title,
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const Spacer(),
                       const NotificationBell(),
-                      const SizedBox(width: 12),
-                      _Avatar(account: account, role: role),
-                      const SizedBox(width: 10),
-                      Text(
-                        account.fullName,
-                        style: Theme.of(context).textTheme.labelLarge,
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: 'Account & security',
+                        child: InkWell(
+                          key: const Key('open-account'),
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => context.go(securityPath),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _Avatar(account: account, role: role),
+                                const SizedBox(width: 10),
+                                Text(
+                                  account.fullName,
+                                  style: Theme.of(context).textTheme.labelLarge,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -182,14 +207,20 @@ class _Sidebar extends StatelessWidget {
     required this.active,
     required this.account,
     required this.onNavigate,
+    required this.securitySelected,
+    required this.onOpenSecurity,
     required this.onSignOut,
   });
 
   final UserRole role;
   final List<NavItem> items;
-  final NavItem active;
+
+  /// Null while the page on screen is not one of the menu's own.
+  final NavItem? active;
   final Account account;
   final ValueChanged<NavItem> onNavigate;
+  final bool securitySelected;
+  final VoidCallback onOpenSecurity;
   final VoidCallback onSignOut;
 
   @override
@@ -267,6 +298,17 @@ class _Sidebar extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
+          _NavTile(
+            key: const Key('account-security'),
+            item: const NavItem(
+              'Account & Security',
+              Icons.shield_outlined,
+              '',
+            ),
+            selected: securitySelected,
+            onTap: onOpenSecurity,
+          ),
+          const SizedBox(height: 4),
           _NavTile(
             key: const Key('sign-out'),
             item: const NavItem('Log out', Icons.logout_rounded, ''),

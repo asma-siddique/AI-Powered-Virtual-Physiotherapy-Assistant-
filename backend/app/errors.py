@@ -76,6 +76,19 @@ def forbidden() -> ApiError:
     return ApiError(status.HTTP_403_FORBIDDEN, "forbidden", "Your account cannot access this.")
 
 
+def password_change_required() -> ApiError:
+    return ApiError(
+        status.HTTP_403_FORBIDDEN,
+        "password_change_required",
+        "Choose a new password to continue.",
+    )
+
+
+def conflict(code: str, message: str, **extra: object) -> ApiError:
+    """The request is understood but cannot be carried out as things stand."""
+    return ApiError(status.HTTP_409_CONFLICT, code, message, **extra)
+
+
 def not_found(what: str = "Not found.") -> ApiError:
     return ApiError(status.HTTP_404_NOT_FOUND, "not_found", what)
 

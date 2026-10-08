@@ -1,4 +1,3 @@
-import re
 import uuid
 from datetime import datetime
 from typing import Any, Literal
@@ -6,6 +5,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models import Role
+from app.security import password_problem
+
+
+def checked_password(value: str) -> str:
+    problem = password_problem(value)
+    if problem:
+        raise ValueError(problem)
+    return value
 
 
 class RegisterRequest(BaseModel):
@@ -25,9 +32,7 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def _password_policy(cls, value: str) -> str:
-        if not re.search(r"[A-Za-z]", value) or not re.search(r"\d", value):
-            raise ValueError("Use at least 8 characters, including a letter and a number.")
-        return value
+        return checked_password(value)
 
 
 class LoginRequest(BaseModel):
@@ -40,6 +45,16 @@ class LoginRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=10, max_length=512)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_policy(cls, value: str) -> str:
+        return checked_password(value)
 
 
 class AccountOut(BaseModel):
@@ -75,6 +90,9 @@ class MeResponse(BaseModel):
     # Patients only: whether the current advisory has been acknowledged. The app
     # sends a patient to the advisory screen while this is false.
     advisory_acknowledged: bool | None = None
+    # True while the password is a temporary one issued by an admin. The app
+    # then shows nothing but the screen for choosing a new password.
+    password_change_required: bool = False
 
 
 class AuthResponse(MeResponse):
@@ -83,11 +101,16 @@ class AuthResponse(MeResponse):
 
 class SessionOut(BaseModel):
     id: uuid.UUID
+    # For example "Chrome on Windows".
+    device: str
     created_at: datetime
     last_seen_at: datetime
-    user_agent: str | None
     ip: str | None
     current: bool
+
+
+class SignedOutCount(BaseModel):
+    signed_out: int
 
 
 class InviteCodeOut(BaseModel):

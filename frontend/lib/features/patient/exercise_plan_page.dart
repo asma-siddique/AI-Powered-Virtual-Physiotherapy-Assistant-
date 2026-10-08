@@ -102,6 +102,13 @@ class PlanItemCard extends StatelessWidget {
                   'Works: ${exercise.primaryTargets}',
                   style: text.bodySmall?.copyWith(color: AppColors.textMuted),
                 ),
+                if (item.wasEdited && item.updatedAt != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Updated by your physiotherapist on ${formatDate(item.updatedAt!)}',
+                    style: text.bodySmall?.copyWith(color: AppColors.textMuted),
+                  ),
+                ],
                 if (item.note != null) ...[
                   const SizedBox(height: 12),
                   Container(

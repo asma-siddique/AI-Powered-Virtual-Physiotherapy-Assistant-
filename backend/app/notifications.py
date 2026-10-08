@@ -7,10 +7,23 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app import clock
-from app.models import Notification
+from app.models import Notification, Role
 
 PLAN_ASSIGNED = "plan_assigned"
+PLAN_UPDATED = "plan_updated"
 SECURITY_LOCKOUT = "security_lockout"
+SECURITY_PASSWORD_CHANGED = "security_password_changed"
+ACCOUNT_ROLE_CHANGED = "account_role_changed"
+PHYSIOTHERAPIST_CHANGED = "physiotherapist_changed"
+PATIENT_ASSIGNED = "patient_assigned"
+PATIENT_UNASSIGNED = "patient_unassigned"
+
+_HOME = {Role.patient: "/patient", Role.physiotherapist: "/physio", Role.admin: "/admin"}
+
+
+def security_link(role: Role) -> str:
+    """The app's Account & Security page for someone with this role."""
+    return f"{_HOME[role]}/security"
 
 
 def send(

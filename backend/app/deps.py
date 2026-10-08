@@ -71,8 +71,19 @@ def get_auth_context(
 CurrentAuth = Annotated[AuthContext, Depends(get_auth_context)]
 
 
+def require_ready(auth: CurrentAuth) -> AuthContext:
+    """While an account still has the temporary password an admin issued, it can
+    only read its own profile, choose a new password or sign out."""
+    if auth.account.must_change_password:
+        raise errors.password_change_required()
+    return auth
+
+
+ReadyAuth = Annotated[AuthContext, Depends(require_ready)]
+
+
 def require_role(*roles: Role) -> Callable[[AuthContext], Account]:
-    def dependency(auth: CurrentAuth) -> Account:
+    def dependency(auth: ReadyAuth) -> Account:
         if auth.account.role not in roles:
             raise errors.forbidden()
         return auth.account

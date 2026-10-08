@@ -65,6 +65,8 @@ class PlanItem {
     required this.restSeconds,
     required this.difficulty,
     this.note,
+    this.revision = 1,
+    this.updatedAt,
   });
 
   factory PlanItem.fromJson(Map<String, dynamic> json) => PlanItem(
@@ -76,6 +78,8 @@ class PlanItem {
     restSeconds: json['rest_seconds'] as int,
     difficulty: Difficulty.fromApi(json['difficulty'] as String),
     note: json['note'] as String?,
+    revision: json['revision'] as int? ?? 1,
+    updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? ''),
   );
 
   final String id;
@@ -86,6 +90,14 @@ class PlanItem {
   final int restSeconds;
   final Difficulty difficulty;
   final String? note;
+
+  /// 1 as assigned, one higher for every edit since.
+  final int revision;
+
+  /// When the physiotherapist last edited this prescription, if ever.
+  final DateTime? updatedAt;
+
+  bool get wasEdited => revision > 1;
 
   /// "3 sets × 12 reps"
   String get prescription => '$sets sets × $reps reps';
@@ -132,6 +144,77 @@ class ExercisePlan {
     for (final item in items)
       if (!item.exercise.isActive) item.exercise.name,
   ];
+}
+
+/// Rest between sets a physiotherapist can choose from, in seconds.
+const restOptions = [0, 30, 45, 60, 90, 120];
+
+/// One field of a prescription before and after an edit.
+class FieldChange {
+  const FieldChange({required this.field, this.before, this.after});
+
+  factory FieldChange.fromJson(Map<String, dynamic> json) => FieldChange(
+    field: json['field'] as String,
+    before: json['before'],
+    after: json['after'],
+  );
+
+  /// sets | reps | rest_seconds | difficulty | note
+  final String field;
+  final Object? before;
+  final Object? after;
+
+  static String _difficulty(Object? value) =>
+      Difficulty.fromApi('$value').label;
+
+  /// "Sets: 3 to 4", written for the history list.
+  String get description => switch (field) {
+    'sets' => 'Sets: $before to $after',
+    'reps' => 'Reps: $before to $after',
+    'rest_seconds' =>
+      'Rest: ${before == 0 ? 'none' : '${before}s'} to ${after == 0 ? 'none' : '${after}s'}',
+    'difficulty' =>
+      'Difficulty: ${_difficulty(before)} to ${_difficulty(after)}',
+    'note' when before == null => 'Note added: "$after"',
+    'note' when after == null => 'Note removed (was "$before")',
+    'note' => 'Note: "$before" to "$after"',
+    _ => '$field: $before to $after',
+  };
+}
+
+/// One saved edit to a prescription.
+class PrescriptionEdit {
+  const PrescriptionEdit({
+    required this.id,
+    required this.itemId,
+    required this.exerciseName,
+    required this.editedAt,
+    required this.editedBy,
+    required this.revision,
+    required this.changes,
+  });
+
+  factory PrescriptionEdit.fromJson(Map<String, dynamic> json) =>
+      PrescriptionEdit(
+        id: json['id'] as int,
+        itemId: json['item_id'] as String,
+        exerciseName: json['exercise_name'] as String,
+        editedAt: DateTime.parse(json['edited_at'] as String),
+        editedBy: PersonRef.fromJson(json['edited_by'] as Map<String, dynamic>),
+        revision: json['revision'] as int,
+        changes: [
+          for (final change in json['changes'] as List<dynamic>)
+            FieldChange.fromJson(change as Map<String, dynamic>),
+        ],
+      );
+
+  final int id;
+  final String itemId;
+  final String exerciseName;
+  final DateTime editedAt;
+  final PersonRef editedBy;
+  final int revision;
+  final List<FieldChange> changes;
 }
 
 /// One exercise being configured in the plan builder, before it is saved.
