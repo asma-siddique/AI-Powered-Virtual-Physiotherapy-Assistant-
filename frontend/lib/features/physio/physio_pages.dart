@@ -243,9 +243,12 @@ class _InviteRow extends StatelessWidget {
 }
 
 class _PatientRow extends StatelessWidget {
-  const _PatientRow({required this.patient});
+  const _PatientRow({required this.patient, this.onPlan});
 
   final PatientSummary patient;
+
+  /// Opens the plan builder for this patient; the row shows a button when set.
+  final VoidCallback? onPlan;
 
   @override
   Widget build(BuildContext context) {
@@ -312,6 +315,14 @@ class _PatientRow extends StatelessWidget {
             patient.isActive
                 ? const Pill.success('Active')
                 : const Pill.neutral('Inactive'),
+            if (onPlan != null) ...[
+              const SizedBox(width: 8),
+              TextButton(
+                key: Key('plan-for-${patient.id}'),
+                onPressed: onPlan,
+                child: const Text('Plan'),
+              ),
+            ],
           ],
         ),
       ),
@@ -346,7 +357,12 @@ class PhysioPatientsPage extends ConsumerWidget {
                 ),
               )
             else
-              for (final patient in patients) _PatientRow(patient: patient),
+              for (final patient in patients)
+                _PatientRow(
+                  patient: patient,
+                  onPlan: () =>
+                      context.go('/physio/plan-builder?patient=${patient.id}'),
+                ),
           ],
         ),
       ),

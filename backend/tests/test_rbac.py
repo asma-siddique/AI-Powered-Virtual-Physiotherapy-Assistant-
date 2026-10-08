@@ -17,6 +17,15 @@ RESTRICTED = [
     ("GET", "/api/v1/admin/users", Role.admin),
     ("GET", "/api/v1/admin/audit-log", Role.admin),
     ("GET", "/api/v1/admin/consents", Role.admin),
+    ("GET", "/api/v1/admin/exercises", Role.admin),
+    ("POST", "/api/v1/admin/exercises", Role.admin),
+    ("PATCH", "/api/v1/admin/exercises/00000000-0000-0000-0000-000000000000", Role.admin),
+    ("POST", "/api/v1/admin/exercises/00000000-0000-0000-0000-000000000000/activate", Role.admin),
+    ("POST", "/api/v1/admin/exercises/00000000-0000-0000-0000-000000000000/deactivate", Role.admin),
+    ("GET", "/api/v1/physio/exercises", Role.physiotherapist),
+    ("GET", "/api/v1/physio/patients/00000000-0000-0000-0000-000000000000/plans", Role.physiotherapist),
+    ("POST", "/api/v1/physio/patients/00000000-0000-0000-0000-000000000000/plans", Role.physiotherapist),
+    ("GET", "/api/v1/patient/plan", Role.patient),
     ("GET", "/api/v1/patient/consent", Role.patient),
     ("POST", "/api/v1/patient/consent", Role.patient),
 ]
@@ -24,6 +33,9 @@ ANY_SIGNED_IN = [
     ("GET", "/api/v1/auth/me"),
     ("GET", "/api/v1/auth/sessions"),
     ("POST", "/api/v1/auth/logout"),
+    ("GET", "/api/v1/notifications"),
+    ("POST", "/api/v1/notifications/read-all"),
+    ("POST", "/api/v1/notifications/00000000-0000-0000-0000-000000000000/read"),
     ("DELETE", "/api/v1/auth/sessions/00000000-0000-0000-0000-000000000000"),
 ]
 PUBLIC = {

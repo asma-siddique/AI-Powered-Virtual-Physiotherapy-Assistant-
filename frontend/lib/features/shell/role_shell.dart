@@ -6,6 +6,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/common.dart';
 import '../auth/auth_controller.dart';
 import '../auth/auth_models.dart';
+import '../notifications/notification_bell.dart';
+import 'page_widgets.dart';
 
 class NavItem {
   const NavItem(this.label, this.icon, this.path);
@@ -37,6 +39,11 @@ const navigationByRole = <UserRole, List<NavItem>>{
   UserRole.admin: [
     NavItem('Overview', Icons.dashboard_outlined, '/admin'),
     NavItem('Users & Roles', Icons.manage_accounts_outlined, '/admin/users'),
+    NavItem(
+      'Exercise Library',
+      Icons.fitness_center_outlined,
+      '/admin/exercises',
+    ),
     NavItem('Patient Feedback', Icons.rate_review_outlined, '/admin/feedback'),
     NavItem('Audit Log', Icons.history_rounded, '/admin/audit-log'),
   ],
@@ -72,7 +79,7 @@ class RoleShell extends ConsumerWidget {
           items.first,
           (best, item) => item.path.length > best.path.length ? item : best,
         );
-    final wide = MediaQuery.sizeOf(context).width >= 1000;
+    final wide = MediaQuery.sizeOf(context).width >= shellWideBreakpoint;
 
     final sidebar = _Sidebar(
       role: role,
@@ -86,17 +93,6 @@ class RoleShell extends ConsumerWidget {
       onSignOut: () => ref.read(authControllerProvider.notifier).signOut(),
     );
 
-    final content = SingleChildScrollView(
-      padding: EdgeInsets.all(wide ? 40 : 16),
-      child: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1200),
-          child: child,
-        ),
-      ),
-    );
-
     if (!wide) {
       return Scaffold(
         appBar: AppBar(
@@ -104,10 +100,11 @@ class RoleShell extends ConsumerWidget {
             active.label,
             style: Theme.of(context).textTheme.titleLarge,
           ),
+          actions: const [NotificationBell(), SizedBox(width: 8)],
           shape: const Border(bottom: BorderSide(color: AppColors.divider)),
         ),
         drawer: Drawer(child: SafeArea(child: sidebar)),
-        body: content,
+        body: child,
       );
     }
 
@@ -134,6 +131,8 @@ class RoleShell extends ConsumerWidget {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const Spacer(),
+                      const NotificationBell(),
+                      const SizedBox(width: 12),
                       _Avatar(account: account, role: role),
                       const SizedBox(width: 10),
                       Text(
@@ -143,7 +142,7 @@ class RoleShell extends ConsumerWidget {
                     ],
                   ),
                 ),
-                Expanded(child: content),
+                Expanded(child: child),
               ],
             ),
           ),

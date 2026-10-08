@@ -9,7 +9,15 @@ from sqlalchemy import text
 from app.config import get_settings
 from app.db import get_engine
 from app.migrate import upgrade_to_head
-from app.routers import admin, auth, patient, physio
+from app.routers import (
+    admin,
+    admin_exercises,
+    auth,
+    notifications,
+    patient,
+    physio,
+    physio_plans,
+)
 
 
 @asynccontextmanager
@@ -43,6 +51,9 @@ def create_app() -> FastAPI:
     api.include_router(patient.router)
     api.include_router(physio.router)
     api.include_router(admin.router)
+    api.include_router(admin_exercises.router)
+    api.include_router(physio_plans.router)
+    api.include_router(notifications.router)
     app.include_router(api)
 
     @app.get("/health", tags=["meta"])

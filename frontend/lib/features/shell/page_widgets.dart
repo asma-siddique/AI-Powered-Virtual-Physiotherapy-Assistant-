@@ -16,31 +16,35 @@ class PageIntro extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final heading = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: text.headlineSmall),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle!,
+            style: text.bodyMedium?.copyWith(color: AppColors.textMuted),
+          ),
+        ],
+      ],
+    );
+    // Beside the heading there is no room for an action on a phone.
+    final stacked = action != null && MediaQuery.sizeOf(context).width < 600;
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Column(
+      child: stacked
+          ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              children: [heading, const SizedBox(height: 16), action!],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(title, style: text.headlineSmall),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle!,
-                    style: text.bodyMedium?.copyWith(
-                      color: AppColors.textMuted,
-                    ),
-                  ),
-                ],
+                Expanded(child: heading),
+                if (action != null) ...[const SizedBox(width: 16), action!],
               ],
             ),
-          ),
-          ?action,
-        ],
-      ),
     );
   }
 }
@@ -92,6 +96,35 @@ class StatCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Window width from which the shell shows its sidebar instead of a drawer.
+const shellWideBreakpoint = 1000.0;
+
+/// The scrolling body of one page inside a role shell.
+///
+/// Each page scrolls on its own: a page opens at the top whatever the previous
+/// one was scrolled to, and the page being left is never laid out again with
+/// the size of the page replacing it.
+class ShellPageBody extends StatelessWidget {
+  const ShellPageBody({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= shellWideBreakpoint;
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(wide ? 40 : 16),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1200),
+          child: child,
+        ),
       ),
     );
   }

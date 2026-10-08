@@ -6,10 +6,14 @@ import 'package:physioai/app.dart';
 import 'package:physioai/core/api/api_client.dart';
 import 'package:physioai/core/api/api_exception.dart';
 import 'package:physioai/core/api/token_store.dart';
+import 'package:physioai/features/admin/exercise_library_repository.dart';
 import 'package:physioai/features/auth/auth_controller.dart';
 import 'package:physioai/features/auth/auth_models.dart';
 import 'package:physioai/features/auth/auth_repository.dart';
 import 'package:physioai/features/consent/consent_repository.dart';
+import 'package:physioai/features/exercises/exercise_models.dart';
+import 'package:physioai/features/notifications/notifications_repository.dart';
+import 'package:physioai/features/patient/patient_repository.dart';
 import 'package:physioai/features/physio/physio_repository.dart';
 import 'package:physioai/router.dart';
 
@@ -121,8 +125,218 @@ class FakePhysioRepository implements PhysioRepository {
     return code;
   }
 
+  /// The physiotherapist's patients, the exercise picker and saved plans.
+  final roster = <PatientSummary>[];
+  final exercises = <ExerciseBrief>[];
+  final plansByPatient = <String, List<ExercisePlan>>{};
+  final assigned =
+      <({String patientId, String name, List<Map<String, dynamic>> items})>[];
+  ApiException? assignFailure;
+
   @override
-  Future<List<PatientSummary>> patients() async => const [];
+  Future<List<PatientSummary>> patients() async => List.of(roster);
+
+  @override
+  Future<List<ExerciseBrief>> activeExercises() async =>
+      exercises.where((exercise) => exercise.isActive).toList();
+
+  @override
+  Future<List<ExercisePlan>> plans(String patientId) async =>
+      List.of(plansByPatient[patientId] ?? const []);
+
+  @override
+  Future<ExercisePlan> assignPlan({
+    required String patientId,
+    required String name,
+    required List<PlanItemDraft> items,
+  }) async {
+    if (assignFailure != null) throw assignFailure!;
+    assigned.add((
+      patientId: patientId,
+      name: name,
+      items: [for (final item in items) item.toJson()],
+    ));
+    final now = DateTime(2026, 10, 8, 12);
+    final plan = ExercisePlan(
+      id: 'plan-${assigned.length}',
+      name: name,
+      createdAt: now,
+      isActive: true,
+      assignedBy: const PersonRef(id: 'physio-1', fullName: 'Dr. Sarah Malik'),
+      items: [
+        for (var i = 0; i < items.length; i++)
+          PlanItem(
+            id: 'item-$i',
+            position: i + 1,
+            exercise: items[i].exercise,
+            sets: items[i].sets,
+            reps: items[i].reps,
+            restSeconds: items[i].restSeconds,
+            difficulty: items[i].difficulty,
+          ),
+      ],
+    );
+    // As on the server: the previous plan is archived, never replaced.
+    plansByPatient[patientId] = [
+      plan,
+      for (final old in plansByPatient[patientId] ?? const <ExercisePlan>[])
+        ExercisePlan(
+          id: old.id,
+          name: old.name,
+          createdAt: old.createdAt,
+          archivedAt: old.archivedAt ?? now,
+          isActive: false,
+          assignedBy: old.assignedBy,
+          items: old.items,
+        ),
+    ];
+    return plan;
+  }
+}
+
+class FakeNotificationsRepository implements NotificationsRepository {
+  FakeNotificationsRepository([List<AppNotification>? items])
+    : items = items ?? [];
+
+  List<AppNotification> items;
+  ApiException? failure;
+
+  AppNotification _read(AppNotification n) => AppNotification(
+    id: n.id,
+    kind: n.kind,
+    title: n.title,
+    body: n.body,
+    link: n.link,
+    createdAt: n.createdAt,
+    readAt: n.readAt ?? DateTime(2026, 10, 8, 19),
+  );
+
+  @override
+  Future<NotificationFeed> feed() async => NotificationFeed(
+    unreadCount: items.where((n) => n.isUnread).length,
+    items: List.of(items),
+  );
+
+  @override
+  Future<void> markRead(String id) async {
+    if (failure != null) throw failure!;
+    items = [for (final n in items) n.id == id ? _read(n) : n];
+  }
+
+  @override
+  Future<void> markAllRead() async {
+    if (failure != null) throw failure!;
+    items = [for (final n in items) _read(n)];
+  }
+}
+
+class FakeExerciseLibraryRepository implements ExerciseLibraryRepository {
+  FakeExerciseLibraryRepository([List<ExerciseTemplate>? exercises])
+    : exercises = exercises ?? [];
+
+  List<ExerciseTemplate> exercises;
+  ApiException? failure;
+  final created = <Map<String, dynamic>>[];
+  final updated = <({String id, Map<String, dynamic> fields})>[];
+  final toggled = <({String id, bool active})>[];
+
+  ExerciseTemplate _from(
+    Map<String, dynamic> fields, {
+    required String id,
+    required bool active,
+    required int version,
+  }) => ExerciseTemplate(
+    id: id,
+    name: fields['name'] as String,
+    domain: fields['domain'] as String,
+    bodyArea: fields['body_area'] as String,
+    primaryTargets: fields['primary_targets'] as String,
+    targetJoints: List<String>.from(fields['target_joints'] as List),
+    movementPattern: fields['movement_pattern'] as String,
+    instructions: fields['instructions'] as String,
+    checks: [
+      for (final check in fields['checks'] as List)
+        SeverityCheck(
+          key: check['key'] as String,
+          label: check['label'] as String,
+          measure: check['measure'] as String,
+          unit: check['unit'] as String,
+          info: check['info'] as double,
+          amber: check['amber'] as double,
+          red: check['red'] as double?,
+          correctiveMessage: check['corrective_message'] as String,
+        ),
+    ],
+    isActive: active,
+    version: version,
+    updatedAt: DateTime(2026, 10, 8, 20),
+  );
+
+  @override
+  Future<List<ExerciseTemplate>> all() async => List.of(exercises);
+
+  @override
+  Future<ExerciseTemplate> create(Map<String, dynamic> fields) async {
+    if (failure != null) throw failure!;
+    created.add(fields);
+    // As on the server: a new exercise starts switched off.
+    final exercise = _from(
+      fields,
+      id: 'new-${created.length}',
+      active: false,
+      version: 1,
+    );
+    exercises = [...exercises, exercise];
+    return exercise;
+  }
+
+  @override
+  Future<ExerciseTemplate> update(
+    String id,
+    Map<String, dynamic> fields,
+  ) async {
+    if (failure != null) throw failure!;
+    updated.add((id: id, fields: fields));
+    final old = exercises.firstWhere((e) => e.id == id);
+    final saved = _from(
+      fields,
+      id: id,
+      active: old.isActive,
+      version: old.version + 1,
+    );
+    exercises = [for (final e in exercises) e.id == id ? saved : e];
+    return saved;
+  }
+
+  @override
+  Future<ExerciseTemplate> setActive(String id, {required bool active}) async {
+    if (failure != null) throw failure!;
+    toggled.add((id: id, active: active));
+    final old = exercises.firstWhere((e) => e.id == id);
+    final saved = ExerciseTemplate(
+      id: old.id,
+      name: old.name,
+      domain: old.domain,
+      bodyArea: old.bodyArea,
+      primaryTargets: old.primaryTargets,
+      targetJoints: old.targetJoints,
+      movementPattern: old.movementPattern,
+      instructions: old.instructions,
+      checks: old.checks,
+      isActive: active,
+      version: old.version,
+      updatedAt: old.updatedAt,
+    );
+    exercises = [for (final e in exercises) e.id == id ? saved : e];
+    return saved;
+  }
+}
+
+class FakePatientRepository implements PatientRepository {
+  ExercisePlan? plan;
+
+  @override
+  Future<ExercisePlan?> currentPlan() async => plan;
 }
 
 class FakeConsentRepository implements ConsentRepository {
@@ -170,6 +384,9 @@ Future<FakeAuthRepository> pumpApp(
   FakeAuthRepository? auth,
   FakePhysioRepository? physio,
   FakeConsentRepository? consent,
+  FakePatientRepository? patient,
+  FakeNotificationsRepository? notifications,
+  FakeExerciseLibraryRepository? library,
 }) async {
   tester.view.physicalSize = const Size(1400, 1100);
   tester.view.devicePixelRatio = 1;
@@ -186,12 +403,36 @@ Future<FakeAuthRepository> pumpApp(
         consentRepositoryProvider.overrideWithValue(
           consent ?? FakeConsentRepository(),
         ),
+        patientRepositoryProvider.overrideWithValue(
+          patient ?? FakePatientRepository(),
+        ),
+        notificationsRepositoryProvider.overrideWithValue(
+          notifications ?? FakeNotificationsRepository(),
+        ),
+        exerciseLibraryRepositoryProvider.overrideWithValue(
+          library ?? FakeExerciseLibraryRepository(),
+        ),
       ],
       child: const PhysioAiApp(),
     ),
   );
   await tester.pumpAndSettle();
   return repository;
+}
+
+/// Scrolls the widget with [key] into view and taps it.
+Future<void> tapKey(WidgetTester tester, String key) async {
+  await tester.ensureVisible(find.byKey(Key(key)));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key(key)));
+  await tester.pumpAndSettle();
+}
+
+/// Scrolls the field with [key] into view and replaces its text.
+Future<void> fill(WidgetTester tester, String key, String value) async {
+  await tester.ensureVisible(find.byKey(Key(key)));
+  await tester.enterText(find.byKey(Key(key)), value);
+  await tester.pumpAndSettle();
 }
 
 /// Welcome -> "Choose your role".

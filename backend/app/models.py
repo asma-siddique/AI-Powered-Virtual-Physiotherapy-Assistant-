@@ -13,7 +13,9 @@ from sqlalchemy import (
     ForeignKey,
     Identity,
     Index,
+    Integer,
     String,
+    Text,
     UniqueConstraint,
     text,
     true,
@@ -147,3 +149,92 @@ class AuditLog(Base):
     detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     ip: Mapped[str | None] = mapped_column(String(45))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Difficulty(enum.StrEnum):
+    easy = "easy"
+    medium = "medium"
+    hard = "hard"
+
+
+class ExerciseTemplate(Base):
+    """One exercise the system can score: its clinical profile and the checks
+    that decide RED / AMBER / INFO feedback. `version` goes up on every edit, so
+    a session can record which version of the thresholds it was scored with and
+    is never rescored when they change."""
+
+    __tablename__ = "exercise_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    slug: Mapped[str] = mapped_column(String(60), unique=True)
+    name: Mapped[str] = mapped_column(String(80))
+    domain: Mapped[str] = mapped_column(String(80))
+    body_area: Mapped[str] = mapped_column(String(30))
+    primary_targets: Mapped[str] = mapped_column(String(160))
+    target_joints: Mapped[list[str]] = mapped_column(JSON)
+    movement_pattern: Mapped[str] = mapped_column(Text)
+    instructions: Mapped[str] = mapped_column(Text)
+    checks: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ExercisePlan(Base):
+    """A plan assigned to one patient. Assigning a new plan archives the old one
+    (archived_at) instead of changing it, so the plan in force on any past date
+    can be reconstructed."""
+
+    __tablename__ = "exercise_plans"
+    __table_args__ = (
+        Index(
+            "uq_exercise_plans_active",
+            "patient_id",
+            unique=True,
+            postgresql_where=text("archived_at IS NULL"),
+        ),
+        Index("ix_exercise_plans_patient", "patient_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    physiotherapist_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    name: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PlanExercise(Base):
+    __tablename__ = "plan_exercises"
+    __table_args__ = (UniqueConstraint("plan_id", "position", name="uq_plan_exercises_position"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercise_plans.id"))
+    exercise_template_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercise_templates.id"))
+    position: Mapped[int] = mapped_column(Integer)
+    sets: Mapped[int] = mapped_column(Integer)
+    reps: Mapped[int] = mapped_column(Integer)
+    rest_seconds: Mapped[int] = mapped_column(Integer)
+    difficulty: Mapped[Difficulty] = mapped_column(
+        Enum(Difficulty, name="plan_difficulty", values_callable=lambda e: [m.value for m in e])
+    )
+    note: Mapped[str | None] = mapped_column(String(200))
+
+
+class Notification(Base):
+    """Something a person should know about, shown in the app's notification
+    list. Unread while read_at is empty."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (Index("ix_notifications_recipient", "recipient_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    recipient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    kind: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(String(400))
+    # Where in the app this notification leads, e.g. "/patient/plan".
+    link: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

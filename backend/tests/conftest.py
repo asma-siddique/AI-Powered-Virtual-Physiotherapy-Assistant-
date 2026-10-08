@@ -37,11 +37,20 @@ from sqlalchemy.orm import Session  # noqa: E402
 from app import clock  # noqa: E402
 from app.db import Base, get_engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Account, InviteCode, PatientAssignment, Role  # noqa: E402
+from app.models import (  # noqa: E402
+    Account,
+    ExerciseTemplate,
+    InviteCode,
+    PatientAssignment,
+    Role,
+)
 from app.security import hash_password  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 PASSWORD = "Correct-Horse-9"
+# Names of the exercises the migrations insert, read before the first test
+# empties the tables.
+SEEDED_EXERCISES: list[str] = []
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -54,6 +63,9 @@ def _schema() -> Iterator[None]:
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     command.upgrade(config, "head")
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM exercise_templates ORDER BY name"))
+        SEEDED_EXERCISES.extend(row[0] for row in rows)
     yield
     engine.dispose()
     if _embedded_dir is not None:
@@ -100,6 +112,18 @@ def time(monkeypatch: pytest.MonkeyPatch) -> Clock:
     return Clock(monkeypatch)
 
 
+CHECK = {
+    "key": "knee_valgus",
+    "label": "Knee alignment",
+    "measure": "Inward deviation of the knees",
+    "unit": "degrees",
+    "info": 5,
+    "amber": 10,
+    "red": 15,
+    "corrective_message": "Keep your knees in line with your toes.",
+}
+
+
 class Factory:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -132,6 +156,28 @@ class Factory:
         self.db.add(invite)
         self.db.commit()
         return invite
+
+    def exercise(self, name: str = "Squats", *, active: bool = True, **extra) -> ExerciseTemplate:
+        now = clock.utcnow()
+        template = ExerciseTemplate(
+            slug=name.lower().replace(" ", "-"),
+            name=name,
+            domain=extra.pop("domain", "Functional rehabilitation"),
+            body_area=extra.pop("body_area", "whole_body"),
+            primary_targets=extra.pop("primary_targets", "Quadriceps, glutes"),
+            target_joints=extra.pop("target_joints", ["hip", "knee", "ankle"]),
+            movement_pattern=extra.pop("movement_pattern", "Bend the hips and knees, then stand."),
+            instructions=extra.pop("instructions", "Stand tall, bend your knees, then stand back up."),
+            checks=extra.pop("checks", [CHECK]),
+            is_active=active,
+            version=1,
+            created_at=now,
+            updated_at=now,
+            **extra,
+        )
+        self.db.add(template)
+        self.db.commit()
+        return template
 
     def patient_of(self, physio: Account, email: str | None = None) -> Account:
         patient = self.account(Role.patient, email)
