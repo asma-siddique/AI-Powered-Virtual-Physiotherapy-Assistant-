@@ -24,7 +24,22 @@ Identity and access (user stories 1.1 to 1.4):
 
 The advisory wording lives in `backend/app/disclaimer.py`. Changing it means bumping `CURRENT_VERSION` there, after which every patient is asked to acknowledge the new wording. Endpoints that start or record a live session must depend on `ConsentedPatient` (`backend/app/deps.py`), which refuses patients who have not acknowledged it.
 
-Not built yet: exercise templates and plans, live sessions, progress, notifications, and admin user management.
+Exercise library and plans (user stories 2.1, 2.3, 7.1 and 7.2):
+
+- The five supported exercises (Arm Abduction, Leg Abduction, Leg Lunge, Push-ups, Squats) are added by a migration, each with its target joints, movement pattern, patient instructions and RED / AMBER / INFO checks.
+- Exercise Library for admins (in the admin panel only): see every exercise, switch one on or off (switching off asks first and explains the effect), and edit an exercise's profile and its RED / AMBER / INFO thresholds. Every edit makes a new version and is audited with the values before and after. A new exercise starts switched off, so physiotherapists are never offered one the scoring model cannot handle yet.
+- Plan Builder for physiotherapists: choose a patient, pick from the exercises that are switched on, set sets, reps, rest and difficulty, and assign. Assigning a new plan archives the previous one rather than replacing it, and a plan that contains an exercise since switched off is flagged.
+- Patients see their plan on Home and in full under My Exercise Plan.
+
+In-app notifications:
+
+- A bell with an unread count for every role. Opening a notification marks it read and goes to the page it is about.
+- A patient is notified when a plan is assigned, and the plan on screen refreshes when that arrives. An account is notified when sign-in to it was paused.
+- The app checks for new notifications once a minute while it is open. Push notifications (Firebase Cloud Messaging) are not built yet.
+
+The severity thresholds that ship with the five exercises are provisional starting values. They have not yet been derived from the REHAB24-6 labels or reviewed clinically; see the note at the top of `backend/migrations/versions/0003_exercise_templates_and_plans.py`.
+
+Not built yet: editing a prescription with its change history (2.2), a screen for the device list (1.2), admin user management (7.3), live sessions, progress, push notifications, chat and feedback.
 
 ## Run it locally
 
@@ -69,10 +84,12 @@ To try registration: sign in as the physiotherapist, press **Generate Invite Cod
 cd backend && pytest                      # API tests, run against a real PostgreSQL
 cd backend && ruff check . && ruff format --check .
 cd frontend && flutter analyze && flutter test
-cd frontend && bash tool/live_api_test.sh # app repositories against the running API
+cd frontend && bash tool/live_api_test.sh # the app's real repositories against a real API
 ```
 
 `pytest` starts its own temporary embedded PostgreSQL. To use another server instead, set `TEST_DATABASE_URL` to a database whose name contains `test` (the suite drops and recreates its schema).
+
+`tool/live_api_test.sh` starts a throwaway API with its own empty database (`python -m app.throwaway`), runs the end-to-end test against it and removes everything afterwards, so your development data is never touched. To run it against an API that is already running instead, set `API_BASE_URL`; that leaves a test patient and a test exercise behind.
 
 ## Using Supabase
 

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'features/admin/admin_pages.dart';
+import 'features/admin/exercise_form_page.dart';
+import 'features/admin/exercise_library_page.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_models.dart';
 import 'features/auth/ui/choose_role_screen.dart';
@@ -11,7 +13,9 @@ import 'features/auth/ui/sign_in_screen.dart';
 import 'features/auth/ui/welcome_screen.dart';
 import 'features/consent/advisory_screen.dart';
 import 'features/consent/help_page.dart';
+import 'features/patient/exercise_plan_page.dart';
 import 'features/patient/patient_home_page.dart';
+import 'features/physio/plan_builder_page.dart';
 import 'features/physio/physio_pages.dart';
 import 'features/shell/page_widgets.dart';
 import 'features/shell/role_shell.dart';
@@ -62,10 +66,16 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: routes,
   );
 
+  // Pages inside a shell appear at once (the sidebar stays put) and each one
+  // has its own scrolling body.
+  Page<void> shellPage(GoRouterState state, Widget child) => NoTransitionPage(
+    key: state.pageKey,
+    child: ShellPageBody(child: child),
+  );
+
   GoRoute page(String path, Widget child) => GoRoute(
     path: path,
-    pageBuilder: (context, state) =>
-        NoTransitionPage(key: state.pageKey, child: child),
+    pageBuilder: (context, state) => shellPage(state, child),
   );
 
   GoRoute soon(String path, String title, String description) =>
@@ -105,11 +115,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       area(UserRole.patient, [
         page('/patient', const PatientHomePage()),
-        soon(
-          '/patient/plan',
-          'My Exercise Plan',
-          'Your assigned exercises will be listed here.',
-        ),
+        page('/patient/plan', const ExercisePlanPage()),
         soon(
           '/patient/history',
           'Session History',
@@ -135,10 +141,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       area(UserRole.physiotherapist, [
         page('/physio', const PhysioDashboardPage()),
         page('/physio/patients', const PhysioPatientsPage()),
-        soon(
-          '/physio/plan-builder',
-          'Plan Builder',
-          'You will build and assign exercise plans here.',
+        GoRoute(
+          path: '/physio/plan-builder',
+          // ?patient=<id> opens the builder with that patient selected.
+          pageBuilder: (context, state) => shellPage(
+            state,
+            PlanBuilderPage(
+              initialPatientId: state.uri.queryParameters['patient'],
+            ),
+          ),
         ),
         soon(
           '/physio/flagged',
@@ -159,6 +170,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       area(UserRole.admin, [
         page('/admin', const AdminOverviewPage()),
         page('/admin/users', const AdminUsersPage()),
+        page('/admin/exercises', const ExerciseLibraryPage()),
+        // "new" is listed before ":id" so it is not read as an exercise id.
+        page('/admin/exercises/new', const ExerciseFormPage()),
+        GoRoute(
+          path: '/admin/exercises/:id',
+          pageBuilder: (context, state) => shellPage(
+            state,
+            ExerciseFormPage(exerciseId: state.pathParameters['id']),
+          ),
+        ),
         soon(
           '/admin/feedback',
           'Patient Feedback',

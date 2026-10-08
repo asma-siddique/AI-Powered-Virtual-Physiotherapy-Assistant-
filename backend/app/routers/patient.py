@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Request, Response, status
 
-from app import consent_service, disclaimer, errors
+from app import consent_service, disclaimer, errors, plan_service
 from app.deps import DbSession, PatientUser, client_ip
+from app.exercise_schemas import PlanOut
 from app.schemas import ConsentRequest, ConsentStatusOut
 
 router = APIRouter(prefix="/patient", tags=["patient"])
@@ -26,3 +27,10 @@ def acknowledge_consent(
     if not created:
         response.status_code = status.HTTP_200_OK
     return consent_service.status(db, patient.id)
+
+
+@router.get("/plan", response_model=PlanOut | None)
+def get_plan(patient: PatientUser, db: DbSession) -> PlanOut | None:
+    """The plan currently in force for this patient, or null if none is assigned."""
+    plan = plan_service.active_plan(db, patient.id)
+    return plan_service.to_out(db, plan) if plan else None

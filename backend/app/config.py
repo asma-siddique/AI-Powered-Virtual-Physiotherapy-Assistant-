@@ -2,6 +2,7 @@ import secrets
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_STATE_DIR = Path.home() / ".physioai"
@@ -19,6 +20,14 @@ class Settings(BaseSettings):
     database_url: str | None = None
 
     jwt_secret: str | None = None
+
+    @field_validator("database_url", "jwt_secret", mode="before")
+    @classmethod
+    def _blank_means_unset(cls, value: object) -> object:
+        # .env.example ships these as "NAME=" with nothing after the equals sign,
+        # which arrives here as an empty string rather than as missing.
+        return None if isinstance(value, str) and not value.strip() else value
+
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 15
     refresh_token_days: int = 7

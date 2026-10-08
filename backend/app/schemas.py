@@ -153,3 +153,20 @@ class ConsentRecordOut(BaseModel):
     account: PersonRef
     disclaimer_version: str
     acknowledged_at: datetime
+
+
+class NotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    title: str
+    body: str
+    link: str | None
+    created_at: datetime
+    read_at: datetime | None
+
+
+class NotificationList(BaseModel):
+    unread_count: int
+    items: list[NotificationOut]

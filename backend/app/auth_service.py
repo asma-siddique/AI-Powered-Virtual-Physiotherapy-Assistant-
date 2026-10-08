@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import audit, clock, consent_service
+from app import audit, clock, consent_service, notifications
 from app.config import get_settings
 from app.models import Account, AuthSession, LoginAttempt, PatientAssignment, Role
 from app.schemas import AccountOut, AuthResponse, MeResponse, PersonRef, TokenPair
@@ -59,9 +59,19 @@ def record_attempt(db: Session, subject_key: str, succeeded: bool, ip: str | Non
     db.flush()
 
 
-def notify_account_locked(account: Account) -> None:
-    # Push/email delivery arrives with the notifications sprint (FCM). Until then
-    # the lockout is written to the audit log and the server log only.
+def notify_account_locked(db: Session, account: Account) -> None:
+    """Leaves the account holder a notice they see the next time they sign in.
+    Push or email delivery arrives with the notifications sprint."""
+    settings = get_settings()
+    notifications.send(
+        db,
+        account.id,
+        notifications.SECURITY_LOCKOUT,
+        "Sign-in to your account was paused",
+        f"Sign-in was paused for {settings.lockout_duration_minutes} minutes after "
+        f"{settings.lockout_threshold} unsuccessful attempts. "
+        "If that was not you, tell your clinic.",
+    )
     log.warning("Account %s locked after repeated failed sign-in attempts", account.id)
 
 
@@ -77,7 +87,7 @@ def register_lockout(db: Session, account: Account | None, subject_key: str, ip:
         ip=ip,
     )
     if account:
-        notify_account_locked(account)
+        notify_account_locked(db, account)
 
 
 def open_session(db: Session, account: Account, user_agent: str | None, ip: str | None) -> TokenPair:

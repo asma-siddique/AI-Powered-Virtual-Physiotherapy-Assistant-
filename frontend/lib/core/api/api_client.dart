@@ -43,6 +43,9 @@ class ApiClient {
   Future<dynamic> post(String path, {Object? body, bool auth = true}) =>
       _send('POST', path, body: body, auth: auth);
 
+  Future<dynamic> patch(String path, {Object? body}) =>
+      _send('PATCH', path, body: body);
+
   Future<dynamic> delete(String path) => _send('DELETE', path);
 
   void close() => _http.close();

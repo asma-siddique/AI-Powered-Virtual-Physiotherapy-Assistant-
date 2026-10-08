@@ -153,6 +153,28 @@ ThemeData buildAppTheme() {
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
     ),
+    dialogTheme: const DialogThemeData(
+      backgroundColor: AppColors.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+      ),
+      // Without a limit a dialog grows as wide as its longest sentence.
+      constraints: BoxConstraints(minWidth: 280, maxWidth: 480),
+      titleTextStyle: TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 20,
+        height: 1.4,
+        fontWeight: FontWeight.w600,
+        color: AppColors.text,
+      ),
+      contentTextStyle: TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 15,
+        height: 1.5,
+        color: AppColors.textMuted,
+      ),
+    ),
   );
 }
 
