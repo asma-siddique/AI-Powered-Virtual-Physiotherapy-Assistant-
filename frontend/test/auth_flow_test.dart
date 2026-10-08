@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:physioai/app.dart';
 import 'package:physioai/core/api/api_client.dart';
 import 'package:physioai/core/api/api_exception.dart';
@@ -125,8 +126,24 @@ Future<FakeAuthRepository> pumpApp(
   return repository;
 }
 
-Future<void> openSignIn(WidgetTester tester) async {
+/// Welcome -> "Choose your role".
+Future<void> openRoleChooser(WidgetTester tester) async {
   await tester.tap(find.widgetWithText(OutlinedButton, 'Sign In'));
+  await tester.pumpAndSettle();
+}
+
+/// Welcome -> "Choose your role" -> the sign-in form for [role].
+Future<void> openSignInAs(WidgetTester tester, UserRole role) async {
+  await openRoleChooser(tester);
+  await tester.tap(find.byKey(Key('role-${role.apiValue}')));
+  await tester.pumpAndSettle();
+}
+
+/// Welcome -> role chooser -> patient sign-in -> "Create an account".
+Future<void> openRegistration(WidgetTester tester) async {
+  await openSignInAs(tester, UserRole.patient);
+  await tester.ensureVisible(find.byKey(const Key('create-account')));
+  await tester.tap(find.byKey(const Key('create-account')));
   await tester.pumpAndSettle();
 }
 
@@ -139,6 +156,8 @@ void main() {
     test('signed-out visitors can only open the public screens', () {
       expect(redirectFor(signedOut, '/'), isNull);
       expect(redirectFor(signedOut, '/register'), isNull);
+      expect(redirectFor(signedOut, '/sign-in'), isNull);
+      expect(redirectFor(signedOut, '/sign-in/admin'), isNull);
       expect(redirectFor(signedOut, '/admin/users'), '/sign-in');
       expect(redirectFor(signedOut, '/patient'), '/sign-in');
     });
@@ -149,58 +168,115 @@ void main() {
       expect(redirectFor(patient, '/physio/patients'), '/patient');
       expect(redirectFor(admin, '/admin/audit-log'), isNull);
       expect(redirectFor(admin, '/sign-in'), '/admin');
+      expect(redirectFor(admin, '/sign-in/patient'), '/admin');
     });
 
     test(
       'a path that only shares a prefix is not treated as the same area',
       () {
         expect(redirectFor(patient, '/patients'), '/patient');
+        expect(redirectFor(signedOut, '/sign-in-admin'), '/sign-in');
       },
     );
+
+    test('the address is left alone while the saved session is checked', () {
+      expect(redirectFor(const AuthLoading(), '/physio/patients'), isNull);
+      expect(redirectFor(const AuthLoading(), '/sign-in/admin'), isNull);
+    });
   });
 
-  testWidgets(
-    'welcome screen leads to the role-based sign-in with Patient preselected',
-    (tester) async {
+  testWidgets('the first sign-in step only asks for a role', (tester) async {
+    await pumpApp(tester);
+    expect(
+      find.text('Smarter rehabilitation.\nBetter movement.'),
+      findsOneWidget,
+    );
+
+    await openRoleChooser(tester);
+
+    expect(find.text('Choose your role'), findsOneWidget);
+    expect(find.text('Login as Patient'), findsOneWidget);
+    expect(find.text('Login as Physiotherapist'), findsOneWidget);
+    expect(find.text('Login as Admin'), findsOneWidget);
+    // No form and no account creation on this screen.
+    expect(find.byKey(const Key('sign-in-identifier')), findsNothing);
+    expect(find.byKey(const Key('sign-in-password')), findsNothing);
+    expect(find.byKey(const Key('sign-in-submit')), findsNothing);
+    expect(find.byKey(const Key('create-account')), findsNothing);
+  });
+
+  testWidgets('Get Started also begins with choosing a role', (tester) async {
+    await pumpApp(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Get Started'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Choose your role'), findsOneWidget);
+  });
+
+  testWidgets('patients can sign in or create an account on the second step', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+
+    await openSignInAs(tester, UserRole.patient);
+
+    expect(find.text('Sign in as Patient'), findsOneWidget);
+    expect(find.byKey(const Key('sign-in-submit')), findsOneWidget);
+    expect(find.byKey(const Key('create-account')), findsOneWidget);
+  });
+
+  for (final role in [UserRole.physiotherapist, UserRole.admin]) {
+    testWidgets('${role.label} gets sign-in only, with no account creation', (
+      tester,
+    ) async {
       await pumpApp(tester);
-      expect(
-        find.text('Smarter rehabilitation.\nBetter movement.'),
-        findsOneWidget,
-      );
 
-      await openSignIn(tester);
+      await openSignInAs(tester, role);
 
-      expect(find.text('Login as Patient'), findsOneWidget);
-      expect(find.text('Login as Physiotherapist'), findsOneWidget);
-      expect(find.text('Login as Admin'), findsOneWidget);
-      expect(find.text('Sign in as Patient'), findsOneWidget);
-      expect(find.text('Create an account'), findsOneWidget);
-    },
-  );
-
-  testWidgets(
-    'choosing a role changes the form and hides patient registration',
-    (tester) async {
-      await pumpApp(tester);
-      await openSignIn(tester);
-
-      await tester.tap(find.byKey(const Key('role-admin')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Sign in as Admin'), findsOneWidget);
+      expect(find.text('Sign in as ${role.label}'), findsOneWidget);
+      expect(find.byKey(const Key('sign-in-submit')), findsOneWidget);
+      expect(find.byKey(const Key('create-account')), findsNothing);
       expect(find.text('Create an account'), findsNothing);
       expect(
-        find.text('Admin accounts are created by your clinic administrator.'),
+        find.text(
+          '${role.label} accounts are created by your clinic administrator.',
+        ),
         findsOneWidget,
       );
-    },
-  );
+    });
+  }
+
+  testWidgets('Change role goes back to the role step', (tester) async {
+    await pumpApp(tester);
+    await openSignInAs(tester, UserRole.admin);
+
+    await tester.tap(find.byKey(const Key('change-role')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Choose your role'), findsOneWidget);
+    expect(find.byKey(const Key('sign-in-submit')), findsNothing);
+  });
+
+  testWidgets('an unknown role in the address falls back to the role step', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+
+    GoRouter.of(
+      tester.element(find.byType(Scaffold).first),
+    ).go('/sign-in/nurse');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Choose your role'), findsOneWidget);
+    expect(find.byKey(const Key('sign-in-submit')), findsNothing);
+  });
 
   testWidgets('empty form is rejected without calling the server', (
     tester,
   ) async {
     final auth = await pumpApp(tester);
-    await openSignIn(tester);
+    await openSignInAs(tester, UserRole.patient);
 
     await tester.tap(find.byKey(const Key('sign-in-submit')));
     await tester.pumpAndSettle();
@@ -210,13 +286,12 @@ void main() {
     expect(auth.signIns, isEmpty);
   });
 
-  testWidgets('signing in sends the chosen role and opens that role\'s home', (
+  testWidgets("signing in sends the chosen role and opens that role's home", (
     tester,
   ) async {
     final auth = await pumpApp(tester);
-    await openSignIn(tester);
+    await openSignInAs(tester, UserRole.physiotherapist);
 
-    await tester.tap(find.byKey(const Key('role-physiotherapist')));
     await tester.enterText(
       find.byKey(const Key('sign-in-identifier')),
       '  dr.sarah@example.test ',
@@ -249,7 +324,7 @@ void main() {
       statusCode: 423,
       retryAfterSeconds: 900,
     );
-    await openSignIn(tester);
+    await openSignInAs(tester, UserRole.patient);
 
     await tester.enterText(
       find.byKey(const Key('sign-in-identifier')),
@@ -274,8 +349,7 @@ void main() {
     'registration checks the form, then links the patient to their physiotherapist',
     (tester) async {
       final auth = await pumpApp(tester);
-      await tester.tap(find.widgetWithText(FilledButton, 'Get Started'));
-      await tester.pumpAndSettle();
+      await openRegistration(tester);
 
       await tester.enterText(
         find.byKey(const Key('register-name')),
@@ -331,8 +405,7 @@ void main() {
           'This invite code is not valid or has expired. Ask your physiotherapist for a new one.',
       statusCode: 400,
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Get Started'));
-    await tester.pumpAndSettle();
+    await openRegistration(tester);
 
     await tester.enterText(
       find.byKey(const Key('register-name')),
@@ -363,8 +436,18 @@ void main() {
     expect(find.text('Create your account'), findsOneWidget);
   });
 
+  testWidgets('registration links back to the patient sign-in', (tester) async {
+    await pumpApp(tester);
+    await openRegistration(tester);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Sign In').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign in as Patient'), findsOneWidget);
+  });
+
   testWidgets(
-    'a saved session opens the role home directly and logging out returns to sign-in',
+    'a saved session opens the role home directly and logging out returns to the role step',
     (tester) async {
       final auth = await pumpApp(
         tester,
@@ -383,7 +466,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(auth.signOuts, 1);
-      expect(find.text('Welcome back'), findsOneWidget);
+      expect(find.text('Choose your role'), findsOneWidget);
     },
   );
 }

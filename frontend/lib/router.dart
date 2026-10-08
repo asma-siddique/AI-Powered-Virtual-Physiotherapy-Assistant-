@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'features/admin/admin_pages.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_models.dart';
+import 'features/auth/ui/choose_role_screen.dart';
 import 'features/auth/ui/register_screen.dart';
 import 'features/auth/ui/sign_in_screen.dart';
 import 'features/auth/ui/welcome_screen.dart';
@@ -13,13 +14,27 @@ import 'features/physio/physio_pages.dart';
 import 'features/shell/page_widgets.dart';
 import 'features/shell/role_shell.dart';
 
-const _publicPaths = {'/', '/sign-in', '/register'};
+bool _isPublic(String location) =>
+    location == '/' ||
+    location == '/register' ||
+    location == '/sign-in' ||
+    location.startsWith('/sign-in/');
+
+UserRole? _roleFromPath(String? value) {
+  for (final role in UserRole.values) {
+    if (role.apiValue == value) return role;
+  }
+  return null;
+}
 
 /// Where a request for [location] should go instead, or null to allow it.
 /// The server enforces access on every request; this only keeps the UI honest.
 String? redirectFor(AuthState auth, String location) {
+  // Still checking for a saved session: keep the address as it is, so a
+  // refresh or a shared link lands on the same page once that finishes.
+  if (auth is AuthLoading) return null;
   if (auth is! SignedIn) {
-    return _publicPaths.contains(location) ? null : '/sign-in';
+    return _isPublic(location) ? null : '/sign-in';
   }
   final home = auth.user.account.role.homePath;
   final insideOwnArea = location == home || location.startsWith('$home/');
@@ -55,7 +70,19 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/', builder: (context, state) => const WelcomeScreen()),
       GoRoute(
         path: '/sign-in',
-        builder: (context, state) => const SignInScreen(),
+        builder: (context, state) => const ChooseRoleScreen(),
+        routes: [
+          GoRoute(
+            path: ':role',
+            redirect: (context, state) =>
+                _roleFromPath(state.pathParameters['role']) == null
+                ? '/sign-in'
+                : null,
+            builder: (context, state) => SignInScreen(
+              role: _roleFromPath(state.pathParameters['role'])!,
+            ),
+          ),
+        ],
       ),
       GoRoute(
         path: '/register',

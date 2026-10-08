@@ -78,7 +78,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           style: text.bodySmall?.copyWith(color: AppColors.textMuted),
         ),
         TextButton(
-          onPressed: () => context.go('/sign-in'),
+          onPressed: () => context.go('/sign-in/patient'),
           child: const Text('Sign In'),
         ),
       ],
