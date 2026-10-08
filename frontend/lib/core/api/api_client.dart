@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
@@ -73,7 +74,7 @@ class ApiClient {
           .then(http.Response.fromStream)
           .timeout(const Duration(seconds: 20));
     } catch (_) {
-      throw ApiException.network;
+      throw _unreachable();
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -91,6 +92,18 @@ class ApiClient {
       onSessionEnded?.call(error);
     }
     throw error;
+  }
+
+  ApiException _unreachable() {
+    if (!kDebugMode) return ApiException.network;
+    // While developing, the usual cause is simply that the API is not running,
+    // so say where the app was looking.
+    return ApiException(
+      code: ApiException.network.code,
+      message:
+          '${ApiException.network.message} '
+          'Developer note: nothing answered at $baseUrl. Is the backend running?',
+    );
   }
 
   /// Swaps the refresh token for a new pair. Concurrent callers share one request,

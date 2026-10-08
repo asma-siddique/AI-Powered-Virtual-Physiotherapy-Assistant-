@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
 from app.config import get_settings
@@ -39,6 +40,11 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["meta"])
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        # The address uvicorn prints is the first thing people open in a browser.
+        return RedirectResponse("/docs")
 
     return app
 

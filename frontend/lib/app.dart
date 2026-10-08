@@ -11,25 +11,20 @@ class PhysioAiApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = buildAppTheme();
-    // Routes are only built once we know whether this device is signed in, so a
-    // returning user never sees the sign-in screen flash before their home.
     final loading = ref.watch(
       authControllerProvider.select((state) => state is AuthLoading),
     );
-    if (loading) {
-      return MaterialApp(
-        title: 'PhysioAI',
-        debugShowCheckedModeBanner: false,
-        theme: theme,
-        home: const Scaffold(body: Center(child: PhysioAiLogo(size: 40))),
-      );
-    }
     return MaterialApp.router(
       title: 'PhysioAI',
       debugShowCheckedModeBanner: false,
-      theme: theme,
+      theme: buildAppTheme(),
       routerConfig: ref.watch(routerProvider),
+      // Until we know whether this device is signed in, show the logo instead
+      // of the page, so a returning user never sees sign-in flash before home.
+      // The router keeps the requested address meanwhile.
+      builder: (context, child) => loading
+          ? const Scaffold(body: Center(child: PhysioAiLogo(size: 40)))
+          : child!,
     );
   }
 }

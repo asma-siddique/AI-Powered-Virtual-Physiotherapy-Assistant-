@@ -44,7 +44,7 @@ class WelcomeScreen extends StatelessWidget {
                 runSpacing: 12,
                 children: [
                   FilledButton(
-                    onPressed: () => context.go('/register'),
+                    onPressed: () => context.go('/sign-in'),
                     child: const Text('Get Started'),
                   ),
                   OutlinedButton(
