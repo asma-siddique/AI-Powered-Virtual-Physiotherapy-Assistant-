@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -72,6 +72,9 @@ class MeResponse(BaseModel):
     account: AccountOut
     # Set for patients only: the physiotherapist currently responsible for them.
     physiotherapist: PersonRef | None = None
+    # Patients only: whether the current advisory has been acknowledged. The app
+    # sends a patient to the advisory screen while this is false.
+    advisory_acknowledged: bool | None = None
 
 
 class AuthResponse(MeResponse):
@@ -115,3 +118,38 @@ class AuditEntryOut(BaseModel):
     target_id: str | None
     detail: dict[str, Any]
     created_at: datetime
+
+
+class DisclaimerPoint(BaseModel):
+    heading: str
+    body: str
+
+
+class DisclaimerOut(BaseModel):
+    version: str
+    title: str
+    intro: str
+    points: list[DisclaimerPoint]
+    caution: str
+    acknowledgment: str
+
+
+class ConsentStatusOut(BaseModel):
+    disclaimer: DisclaimerOut
+    acknowledged: bool
+    acknowledged_at: datetime | None = None
+
+
+class ConsentRequest(BaseModel):
+    # The version the patient actually read, so an acknowledgment can never be
+    # recorded against wording they did not see.
+    version: str = Field(min_length=1, max_length=20)
+    # Must be sent as true: consent is never assumed from a missing field.
+    acknowledged: Literal[True]
+
+
+class ConsentRecordOut(BaseModel):
+    id: uuid.UUID
+    account: PersonRef
+    disclaimer_version: str
+    acknowledged_at: datetime

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Identity,
     Index,
     String,
+    UniqueConstraint,
     text,
     true,
 )
@@ -80,6 +81,23 @@ class InviteCode(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     redeemed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+
+
+class ConsentRecord(Base):
+    """A patient's explicit acknowledgment of one version of the advisory.
+    Rows are only ever added: a new version of the wording gets a new row."""
+
+    __tablename__ = "consents"
+    __table_args__ = (
+        UniqueConstraint("account_id", "disclaimer_version", name="uq_consents_account_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    disclaimer_version: Mapped[str] = mapped_column(String(20))
+    acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ip: Mapped[str | None] = mapped_column(String(45))
+    user_agent: Mapped[str | None] = mapped_column(String(255))
 
 
 class AuthSession(Base):

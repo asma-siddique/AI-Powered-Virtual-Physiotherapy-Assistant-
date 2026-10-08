@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import audit, clock
+from app import audit, clock, consent_service
 from app.config import get_settings
 from app.models import Account, AuthSession, LoginAttempt, PatientAssignment, Role
 from app.schemas import AccountOut, AuthResponse, MeResponse, PersonRef, TokenPair
@@ -109,13 +109,17 @@ def current_physiotherapist(db: Session, patient_id: uuid.UUID) -> Account | Non
 
 
 def me_response(db: Session, account: Account) -> MeResponse:
-    physio = current_physiotherapist(db, account.id) if account.role == Role.patient else None
+    is_patient = account.role == Role.patient
+    physio = current_physiotherapist(db, account.id) if is_patient else None
     return MeResponse(
         account=AccountOut.model_validate(account),
         physiotherapist=PersonRef.model_validate(physio) if physio else None,
+        advisory_acknowledged=(
+            consent_service.current_consent(db, account.id) is not None if is_patient else None
+        ),
     )
 
 
 def auth_response(db: Session, account: Account, tokens: TokenPair) -> AuthResponse:
     me = me_response(db, account)
-    return AuthResponse(account=me.account, physiotherapist=me.physiotherapist, tokens=tokens)
+    return AuthResponse(**me.model_dump(), tokens=tokens)

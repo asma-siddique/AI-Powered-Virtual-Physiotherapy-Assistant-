@@ -7,7 +7,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app import clock, errors
+from app import clock, consent_service, errors
 from app.config import get_settings
 from app.db import get_db
 from app.models import Account, AuthSession, Role
@@ -83,3 +83,14 @@ def require_role(*roles: Role) -> Callable[[AuthContext], Account]:
 PatientUser = Annotated[Account, Depends(require_role(Role.patient))]
 PhysioUser = Annotated[Account, Depends(require_role(Role.physiotherapist))]
 AdminUser = Annotated[Account, Depends(require_role(Role.admin))]
+
+
+def require_consent(patient: PatientUser, db: DbSession) -> Account:
+    """For every endpoint that starts or records a live session: no session data
+    may exist for a patient who has not acknowledged the current advisory."""
+    if consent_service.current_consent(db, patient.id) is None:
+        raise errors.consent_required()
+    return patient
+
+
+ConsentedPatient = Annotated[Account, Depends(require_consent)]
