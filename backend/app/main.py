@@ -8,14 +8,21 @@ from sqlalchemy import text
 
 from app.config import get_settings
 from app.db import get_engine
-from app.routers import admin, auth, physio
+from app.migrate import upgrade_to_head
+from app.routers import admin, auth, patient, physio
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Connect at start-up so a database or configuration problem stops the server
     # with a clear error, instead of surfacing on somebody's first request.
-    get_settings().resolved_jwt_secret()
+    settings = get_settings()
+    settings.resolved_jwt_secret()
+    if settings.database_url is None and not settings.is_production:
+        # The embedded development database belongs to this machine only, so
+        # keep it up to date automatically. Shared databases (DATABASE_URL) are
+        # migrated deliberately with `alembic upgrade head`.
+        upgrade_to_head()
     with get_engine().connect() as connection:
         connection.execute(text("SELECT 1"))
     yield
@@ -33,6 +40,7 @@ def create_app() -> FastAPI:
 
     api = APIRouter(prefix="/api/v1")
     api.include_router(auth.router)
+    api.include_router(patient.router)
     api.include_router(physio.router)
     api.include_router(admin.router)
     app.include_router(api)
