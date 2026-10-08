@@ -12,16 +12,19 @@ Patients do the exercises their physiotherapist assigns while the app tracks the
 
 ## What works today
 
-Sprint 1, identity and access (user stories 1.1 to 1.3):
+Identity and access (user stories 1.1 to 1.4):
 
 - Patient registration that requires a single-use physiotherapist invite code and links the patient to that physiotherapist.
-- Role-based sign-in for patients, physiotherapists and admins, with short-lived access tokens and rotating refresh tokens.
+- Two-step sign-in: choose a role, then sign in. Patients can also create an account from there. Access tokens are short-lived and refresh tokens rotate.
 - Sign-in pauses after 5 failed attempts in 15 minutes, per account and regardless of IP address. Sessions end after 30 minutes of inactivity.
 - Every endpoint checks the caller's role on the server. A physiotherapist can only see their own patients.
-- Audit log entries for registrations, invite codes and lockouts.
+- A mandatory advisory for patients: until they tick the acknowledgment and continue, nothing else in the app opens. The acknowledgment is stored on the server with its timestamp and the version of the wording, and the same text can be re-read under Help.
+- Audit log entries for registrations, invite codes, lockouts and advisory acknowledgments.
 - A device list for each account, with per-session sign-out (API only so far).
 
-Not built yet: the advisory and consent step (1.4), exercise plans, live sessions, progress, notifications, and admin user management.
+The advisory wording lives in `backend/app/disclaimer.py`. Changing it means bumping `CURRENT_VERSION` there, after which every patient is asked to acknowledge the new wording. Endpoints that start or record a live session must depend on `ConsentedPatient` (`backend/app/deps.py`), which refuses patients who have not acknowledged it.
+
+Not built yet: exercise templates and plans, live sessions, progress, notifications, and admin user management.
 
 ## Run it locally
 
@@ -41,6 +44,8 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Interactive API docs: http://localhost:8000/docs
+
+With the embedded database, the API applies new migrations by itself each time it starts, so after pulling new code you only need to restart it. A shared database (`DATABASE_URL` set) is never migrated automatically; run `alembic upgrade head` for that.
 
 ### App
 
