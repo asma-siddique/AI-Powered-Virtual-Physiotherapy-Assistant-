@@ -250,6 +250,43 @@ class PrescriptionEdit(Base):
     changes: Mapped[dict[str, Any]] = mapped_column(JSON)
 
 
+class ExerciseSession(Base):
+    """One time a patient performed an exercise in front of the camera. A row
+    only exists once the camera pre-check has passed. The prescription, the
+    template version and the thresholds are copied in at the start, so editing
+    the plan or the exercise afterwards never changes this session."""
+
+    __tablename__ = "exercise_sessions"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'completed', 'abandoned')", name="ck_exercise_sessions_status"),
+        Index(
+            "uq_exercise_sessions_active",
+            "patient_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index("ix_exercise_sessions_patient", "patient_id", "started_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercise_plans.id"))
+    plan_exercise_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("plan_exercises.id"))
+    exercise_template_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercise_templates.id"))
+    template_version: Mapped[int] = mapped_column(Integer)
+    checks: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    prescription_revision: Mapped[int] = mapped_column(Integer)
+    sets: Mapped[int] = mapped_column(Integer)
+    reps: Mapped[int] = mapped_column(Integer)
+    rest_seconds: Mapped[int] = mapped_column(Integer)
+    difficulty: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(12))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # What the camera check measured and the thresholds it was judged against.
+    precheck: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
 class Notification(Base):
     """Something a person should know about, shown in the app's notification
     list. Unread while read_at is empty."""

@@ -18,6 +18,8 @@ import 'package:physioai/features/exercises/exercise_models.dart';
 import 'package:physioai/features/notifications/notifications_repository.dart';
 import 'package:physioai/features/patient/patient_repository.dart';
 import 'package:physioai/features/physio/physio_repository.dart';
+import 'package:physioai/features/session/pose/pose_source.dart';
+import 'package:physioai/features/session/precheck.dart';
 import 'package:physioai/router.dart';
 
 SessionUser user(
@@ -653,6 +655,52 @@ class FakePatientRepository implements PatientRepository {
 
   @override
   Future<ExercisePlan?> currentPlan() async => plan;
+
+  /// What the camera must show, by plan item id.
+  final requirements = <String, PrecheckRequirements>{};
+  ApiException? startFailure;
+  ApiException? endFailure;
+  final started = <({String itemId, Map<String, dynamic> evidence})>[];
+  final ended = <String>[];
+
+  @override
+  Future<PrecheckRequirements> precheckRequirements(String itemId) async {
+    final found = requirements[itemId];
+    if (found == null) {
+      throw const ApiException(
+        code: 'not_found',
+        message: 'That exercise is not in your current plan.',
+        statusCode: 404,
+      );
+    }
+    return found;
+  }
+
+  @override
+  Future<ExerciseSession> startSession({
+    required String itemId,
+    required Map<String, dynamic> evidence,
+  }) async {
+    started.add((itemId: itemId, evidence: evidence));
+    if (startFailure != null) throw startFailure!;
+    return ExerciseSession(
+      id: 'session-${started.length}',
+      status: 'active',
+      startedAt: DateTime(2026, 10, 9, 17),
+    );
+  }
+
+  @override
+  Future<ExerciseSession> endSession(String id) async {
+    if (endFailure != null) throw endFailure!;
+    ended.add(id);
+    return ExerciseSession(
+      id: id,
+      status: 'completed',
+      startedAt: DateTime(2026, 10, 9, 17),
+      endedAt: DateTime(2026, 10, 9, 17, 5),
+    );
+  }
 }
 
 class FakeConsentRepository implements ConsentRepository {
@@ -706,6 +754,7 @@ Future<FakeAuthRepository> pumpApp(
   FakeAccountRepository? account,
   FakeUserManagementRepository? users,
   FakeAdminRepository? admin,
+  PoseSource? camera,
 }) async {
   tester.view.physicalSize = const Size(1400, 1100);
   tester.view.devicePixelRatio = 1;
@@ -743,6 +792,12 @@ Future<FakeAuthRepository> pumpApp(
         adminRepositoryProvider.overrideWithValue(
           admin ?? FakeAdminRepository(),
         ),
+        // Without one, the app has no camera, as on an unsupported device.
+        if (camera != null)
+          poseSourceProvider.overrideWith((ref) {
+            ref.onDispose(camera.stop);
+            return camera;
+          }),
       ],
       child: const PhysioAiApp(),
     ),

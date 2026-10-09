@@ -244,6 +244,62 @@ void main() {
       );
       expect(await physioRepo.plans(patient.account.id), hasLength(2));
 
+      // A session: the camera check is judged by the server from what was
+      // measured, and the session keeps the prescription it started with.
+      final squatsItem = nowSeen.id;
+      final needs = await patientRepo.precheckRequirements(squatsItem);
+      expect(needs.exercise.name, 'Squats');
+      expect(
+        needs.requiredLandmarks,
+        containsAll(['left_hip', 'right_knee', 'left_ankle']),
+      );
+      expect(needs.requiredLandmarks, isNot(contains('left_wrist')));
+      Map<String, dynamic> measured({
+        double light = 0.6,
+        double seen = 0.9,
+      }) => {
+        'brightness': light,
+        'held_ms': needs.holdMs + 100,
+        'visibility': {for (final name in needs.requiredLandmarks) name: seen},
+      };
+      for (final poor in [measured(light: 0.05), measured(seen: 0.2)]) {
+        await expectLater(
+          patientRepo.startSession(itemId: squatsItem, evidence: poor),
+          throwsA(
+            isA<ApiException>().having(
+              (e) => e.code,
+              'code',
+              'precheck_failed',
+            ),
+          ),
+        );
+      }
+      final session = await patientRepo.startSession(
+        itemId: squatsItem,
+        evidence: measured(),
+      );
+      expect(session.status, 'active');
+      await physioRepo.editPrescription(
+        patientId: patient.account.id,
+        planId: current.id,
+        itemId: squatsItem,
+        sets: 2,
+        reps: 6,
+        restSeconds: 90,
+        difficulty: Difficulty.easy,
+        note: '',
+      );
+      final finished = await patientRepo.endSession(session.id);
+      expect(finished.status, 'completed');
+      expect(finished.endedAt, isNotNull);
+      await expectLater(
+        patientRepo.startSession(
+          itemId: weekOne.items.single.id,
+          evidence: measured(),
+        ),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 404)),
+      );
+
       // The physiotherapist now sees the patient and the redeemed code.
       expect(
         (await physioRepo.patients()).map((p) => p.id),
@@ -275,6 +331,8 @@ void main() {
           'invite_code.created',
           'consent.acknowledged',
           'plan.prescription_edited',
+          'session.started',
+          'session.ended',
         ]),
       );
 
