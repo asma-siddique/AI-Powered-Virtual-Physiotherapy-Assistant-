@@ -123,6 +123,7 @@ Put the Supabase connection string in `backend/.env` as `DATABASE_URL`, set a `J
 
 ## Conventions
 
-- Branch from `main`, open a pull request, and merge only when CI is green.
+- `dev` is where finished work is collected. Branch from `dev`, open a pull request into `dev`, and merge only when CI is green.
+- `main` is what is deployed. It only changes when `dev` is merged into it for a deployment; nothing is pushed to `main` directly.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/), for example `feat(auth): add invite code registration`.
 - Database changes go through Alembic: edit `app/models.py`, then `alembic revision --autogenerate -m "what changed"`.
