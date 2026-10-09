@@ -44,7 +44,18 @@ Exercise library and plans (user stories 2.1, 2.3, 7.1 and 7.2):
 - Patients see their plan on Home and in full under My Exercise Plan.
 - Prescription editing (2.2): a physiotherapist adjusts the sets, reps, rest, difficulty or note of an exercise in the plan that is in force, without assigning a new plan. Every edit is stored with its time, who made it and the value each field had before, and the plan's change history shows them in order. Archived plans cannot be edited. The patient is notified and sees when each exercise was last updated.
 
-Each prescription carries a `revision` number that goes up with every edit. When live sessions are built, a session must store its own copy of the prescription and that revision at the moment it starts, which is what keeps a later edit from ever changing how a completed session was scored.
+Each prescription carries a `revision` number that goes up with every edit. A session stores its own copy of the prescription and that revision at the moment it starts, which is what keeps a later edit from ever changing how a completed session is scored.
+
+Camera check and sessions (user story 3.1, and the landmark extraction of 3.2):
+
+- Each exercise in My Exercise Plan has **Start**, which opens a full-screen camera check. The app follows 33 body landmarks with MediaPipe Pose Landmarker, in the browser, and checks that the joints this exercise needs are in view and that there is enough light. Which joints are needed comes from the exercise's own template, so a leg exercise does not ask for arms.
+- The guidance is specific and live ("Step back so your legs are visible", "It is too dark to see you clearly"). There is no button to press: the patient is standing well back from the device, so the session starts by itself once the setup has stayed good for 1.5 seconds.
+- A session cannot start any other way. The app sends what it measured, never a "passed" flag, and the API judges it against the same thresholds (`backend/app/pose.py`). If it does not pass, no session row is created, so nothing can ever be scored from a setup that failed the check.
+- A session stores its own copy of the prescription, the template version and the thresholds at the moment it starts. Editing the plan or the thresholds afterwards does not change it.
+- The video never leaves the device. Only the landmark positions are used, and for now only the check's measurements and the session's start and end times are stored.
+- The session screen currently shows the camera with the tracked body drawn over it, the elapsed time and whether the patient is still in view. Counting repetitions (3.3) and form feedback (3.4) are the next features.
+
+Limits to know about: pose tracking is built for the web app only (the Android and iOS builds show a message instead); the pose model and its runtime are loaded from Google's and jsDelivr's servers when a session opens, so that needs an internet connection; and the frame rate on real hardware has not been measured yet.
 
 In-app notifications:
 
@@ -54,7 +65,7 @@ In-app notifications:
 
 The severity thresholds that ship with the five exercises are provisional starting values. They have not yet been derived from the REHAB24-6 labels or reviewed clinically; see the note at the top of `backend/migrations/versions/0003_exercise_templates_and_plans.py`.
 
-Not built yet: live sessions and the camera (3.1 to 3.4), scoring and the model (4.1 to 4.3), progress and review (5.1 to 5.3), push notifications, chat and feedback, and the security hardening of epic 8.
+Not built yet: joint-angle features, repetition counting and severity feedback (the rest of 3.2, 3.3 and 3.4), scoring and the model (4.1 to 4.3), progress and review (5.1 to 5.3), push notifications, chat and feedback, and the security hardening of epic 8.
 
 ## Run it locally
 
@@ -112,6 +123,7 @@ Put the Supabase connection string in `backend/.env` as `DATABASE_URL`, set a `J
 
 ## Conventions
 
-- Branch from `main`, open a pull request, and merge only when CI is green.
+- `dev` is where finished work is collected. Branch from `dev`, open a pull request into `dev`, and merge only when CI is green.
+- `main` is what is deployed. It only changes when `dev` is merged into it for a deployment; nothing is pushed to `main` directly.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/), for example `feat(auth): add invite code registration`.
 - Database changes go through Alembic: edit `app/models.py`, then `alembic revision --autogenerate -m "what changed"`.

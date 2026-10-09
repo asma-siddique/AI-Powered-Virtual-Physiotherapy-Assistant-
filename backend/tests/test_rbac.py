@@ -43,6 +43,10 @@ RESTRICTED = [
         Role.physiotherapist,
     ),
     ("GET", "/api/v1/patient/plan", Role.patient),
+    ("GET", "/api/v1/patient/plan/items/00000000-0000-0000-0000-000000000000/precheck", Role.patient),
+    ("POST", "/api/v1/patient/sessions", Role.patient),
+    ("GET", "/api/v1/patient/sessions/00000000-0000-0000-0000-000000000000", Role.patient),
+    ("POST", "/api/v1/patient/sessions/00000000-0000-0000-0000-000000000000/end", Role.patient),
     ("GET", "/api/v1/patient/consent", Role.patient),
     ("POST", "/api/v1/patient/consent", Role.patient),
 ]
@@ -72,7 +76,10 @@ def test_restricted_endpoint_rejects_every_other_role(client, make, method, path
         tokens = sign_in(client, make.account(role))
         response = client.request(method, path, headers=bearer(tokens))
         if role == allowed:
-            assert response.status_code != 403, f"{role} should reach {method} {path}"
+            # A patient can still be told to acknowledge the advisory first;
+            # what must never happen is the role itself being refused.
+            code = response.json().get("detail", {}).get("code") if response.status_code == 403 else None
+            assert code != "forbidden", f"{role} should reach {method} {path}"
         else:
             assert response.status_code == 403, f"{role} must not reach {method} {path}"
             assert response.json()["detail"]["code"] == "forbidden"

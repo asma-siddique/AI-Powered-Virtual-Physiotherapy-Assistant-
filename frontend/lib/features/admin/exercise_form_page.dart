@@ -18,6 +18,17 @@ const _bodyAreas = {
   'whole_body': 'Whole body',
 };
 
+/// The joints the pose model can follow, in body order. The API accepts
+/// exactly these names.
+const _jointNames = {
+  'shoulder': 'Shoulders',
+  'elbow': 'Elbows',
+  'wrist': 'Wrists',
+  'hip': 'Hips',
+  'knee': 'Knees',
+  'ankle': 'Ankles',
+};
+
 String _number(double value) =>
     value == value.roundToDouble() ? value.toInt().toString() : '$value';
 
@@ -108,9 +119,13 @@ class _ExerciseFormState extends ConsumerState<_ExerciseForm> {
   late final _targets = TextEditingController(
     text: widget.exercise?.primaryTargets,
   );
-  late final _joints = TextEditingController(
-    text: widget.exercise?.targetJoints.join(', '),
-  );
+  // Joints the exercise had that the camera check does not know are dropped
+  // here: the server would refuse them when the exercise is saved.
+  late final _joints = <String>{
+    for (final joint in widget.exercise?.targetJoints ?? const <String>[])
+      if (_jointNames.containsKey(joint)) joint,
+  };
+  bool _jointsMissing = false;
   late final _movement = TextEditingController(
     text: widget.exercise?.movementPattern,
   );
@@ -131,14 +146,7 @@ class _ExerciseFormState extends ConsumerState<_ExerciseForm> {
 
   @override
   void dispose() {
-    for (final c in [
-      _name,
-      _domain,
-      _targets,
-      _joints,
-      _movement,
-      _instructions,
-    ]) {
+    for (final c in [_name, _domain, _targets, _movement, _instructions]) {
       c.dispose();
     }
     for (final check in _checks) {
@@ -147,9 +155,10 @@ class _ExerciseFormState extends ConsumerState<_ExerciseForm> {
     super.dispose();
   }
 
+  /// In body order, whatever order they were ticked in.
   List<String> get _jointList => [
-    for (final joint in _joints.text.split(','))
-      if (joint.trim().isNotEmpty) joint.trim().toLowerCase(),
+    for (final joint in _jointNames.keys)
+      if (_joints.contains(joint)) joint,
   ];
 
   /// "Knee alignment" -> "knee_alignment", made unique within this exercise.
@@ -206,7 +215,9 @@ class _ExerciseFormState extends ConsumerState<_ExerciseForm> {
 
   Future<void> _save() async {
     if (_busy) return;
-    if (!_formKey.currentState!.validate()) {
+    final fieldsValid = _formKey.currentState!.validate();
+    setState(() => _jointsMissing = _joints.isEmpty);
+    if (!fieldsValid || _jointsMissing) {
       setState(
         () => _error = 'Some fields need attention. They are marked below.',
       );
@@ -360,14 +371,37 @@ class _ExerciseFormState extends ConsumerState<_ExerciseForm> {
                 LabeledField(
                   label: 'Target joints',
                   helper:
-                      'Separate joints with commas, for example: hip, knee, ankle.',
-                  child: TextFormField(
-                    key: const Key('ex-joints'),
-                    controller: _joints,
-                    validator: (_) =>
-                        _jointList.isEmpty ? 'Name at least one joint.' : null,
+                      'The camera check makes sure these are in view before a '
+                      'session starts.',
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final joint in _jointNames.entries)
+                        FilterChip(
+                          key: Key('joint-${joint.key}'),
+                          label: Text(joint.value),
+                          selected: _joints.contains(joint.key),
+                          onSelected: _busy
+                              ? null
+                              : (selected) => setState(() {
+                                  selected
+                                      ? _joints.add(joint.key)
+                                      : _joints.remove(joint.key);
+                                  _jointsMissing = false;
+                                }),
+                        ),
+                    ],
                   ),
                 ),
+                if (_jointsMissing)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Choose at least one joint.',
+                      style: TextStyle(fontSize: 12, color: AppColors.error),
+                    ),
+                  ),
                 const SizedBox(height: 16),
                 LabeledField(
                   label: 'Expected movement pattern',

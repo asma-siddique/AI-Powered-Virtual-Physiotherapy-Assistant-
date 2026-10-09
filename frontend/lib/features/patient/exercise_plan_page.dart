@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/common.dart';
@@ -97,7 +98,18 @@ class PlanItemCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(exercise.instructions, style: text.bodyLarge),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
+                // An exercise the clinic has switched off cannot be scored,
+                // so it cannot be started until the plan is updated.
+                FilledButton.icon(
+                  key: Key('start-item-${item.id}'),
+                  onPressed: exercise.isActive
+                      ? () => context.go('/patient/session/${item.id}')
+                      : null,
+                  icon: const Icon(Icons.videocam_outlined, size: 18),
+                  label: const Text('Start'),
+                ),
+                const SizedBox(height: 12),
                 Text(
                   'Works: ${exercise.primaryTargets}',
                   style: text.bodySmall?.copyWith(color: AppColors.textMuted),

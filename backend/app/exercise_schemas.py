@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app import pose
 from app.models import Difficulty
 from app.schemas import PersonRef
 
@@ -38,9 +39,14 @@ def _unique_check_keys(checks: list[SeverityCheck]) -> list[SeverityCheck]:
 
 
 def _clean_joints(joints: list[str]) -> list[str]:
-    cleaned = [joint.strip().lower() for joint in joints if joint.strip()]
+    cleaned = list(dict.fromkeys(joint.strip().lower() for joint in joints if joint.strip()))
     if not cleaned:
         raise ValueError("Name at least one target joint.")
+    # The camera check looks for exactly these joints, so a name the pose model
+    # does not have would quietly never be checked.
+    unknown = [joint for joint in cleaned if joint not in pose.KNOWN_JOINTS]
+    if unknown:
+        raise ValueError(f"Choose target joints from: {', '.join(pose.KNOWN_JOINTS)}.")
     return cleaned
 
 

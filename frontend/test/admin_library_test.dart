@@ -213,12 +213,14 @@ void main() {
     await tapKey(tester, 'exercise-edit-squats');
 
     await fill(tester, 'ex-name', '');
-    await fill(tester, 'ex-joints', ' , ');
+    for (final joint in ['hip', 'knee', 'ankle']) {
+      await tapKey(tester, 'joint-$joint'); // untick all three
+    }
     await fill(tester, 'check-0-message', '');
     await tapKey(tester, 'save-exercise');
 
     expect(find.text('Enter the exercise name.'), findsOneWidget);
-    expect(find.text('Name at least one joint.'), findsOneWidget);
+    expect(find.text('Choose at least one joint.'), findsOneWidget);
     expect(
       find.text('Write the message the patient will see.'),
       findsOneWidget,
@@ -237,7 +239,8 @@ void main() {
     await fill(tester, 'ex-name', 'Glute Bridge');
     await fill(tester, 'ex-domain', 'Hip and gluteal rehabilitation');
     await fill(tester, 'ex-targets', 'Glutes, hamstrings');
-    await fill(tester, 'ex-joints', 'Hip, Knee');
+    await tapKey(tester, 'joint-knee'); // ticked out of body order
+    await tapKey(tester, 'joint-hip');
     await fill(
       tester,
       'ex-movement',
