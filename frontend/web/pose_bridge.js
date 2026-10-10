@@ -16,6 +16,9 @@ const POSE_MODEL =
 const LANDMARKS = 33;
 // Brightness is cheap to estimate but not free: once every few frames is enough.
 const BRIGHTNESS_EVERY = 6;
+// A frame is handled when the video reports a new picture, and at least this
+// often regardless, so a video clock that stops moving cannot stop tracking.
+const MAX_FRAME_GAP_MS = 100;
 
 let video = null;
 let stream = null;
@@ -43,7 +46,19 @@ function ensureVideo() {
   // Like a mirror: moving right moves the picture right.
   video.style.transform = 'scaleX(-1)';
   video.style.background = '#172B4D';
+  // The browser pauses a video when the page moves it (Flutter does when it
+  // places the camera on screen). While tracking, it is started again at
+  // once; otherwise the picture freezes and no new frames ever arrive.
+  video.addEventListener('pause', resumeVideo);
   return video;
+}
+
+function resumeVideo() {
+  if (!running || !video || !video.paused || !video.srcObject) return;
+  lastProblem = 'the camera picture was paused and has been started again';
+  if (resumes === 0) console.info(`[PhysioAI pose] ${lastProblem}`);
+  resumes += 1;
+  video.play().catch((error) => report('the camera picture could not restart', error));
 }
 
 let delegate = null;
@@ -51,6 +66,8 @@ let delegate = null;
 // tracker that cannot see anyone is never silent about why.
 const reported = new Set();
 let detectFailures = 0;
+let resumes = 0;
+let lastFrameAt = 0;
 let framesSent = 0;
 let posesSeen = 0;
 let lastProblem = null;
@@ -170,8 +187,15 @@ function sendFrame() {
 function tick() {
   if (!running) return;
   try {
-    if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    if (video.paused) resumeVideo();
+    const now = performance.now();
+    const newPicture = video.currentTime !== lastVideoTime;
+    if (
+      video.readyState >= 2 &&
+      (newPicture || now - lastFrameAt >= MAX_FRAME_GAP_MS)
+    ) {
       lastVideoTime = video.currentTime;
+      lastFrameAt = now;
       sendFrame();
     }
   } catch (error) {
@@ -217,6 +241,8 @@ async function start() {
   framesSent = 0;
   posesSeen = 0;
   detectFailures = 0;
+  resumes = 0;
+  lastFrameAt = 0;
   lastVideoTime = -1;
   requestAnimationFrame(tick);
   return 'ok';
@@ -245,6 +271,8 @@ window.physioPose = {
     running,
     delegate,
     videoReady: !!video && video.readyState >= 2,
+    videoPaused: !!video && video.paused,
+    resumes,
     framesSent,
     posesSeen,
     detectFailures,
