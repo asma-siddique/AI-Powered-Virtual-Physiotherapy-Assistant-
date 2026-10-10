@@ -84,10 +84,17 @@ class FakeCamera implements PoseSource {
     if (problem != null) throw problem!;
   }
 
+  /// Like the real camera: once stopped, it closes its frames and nothing it
+  /// sees reaches the app any more.
   @override
-  Future<void> stop() async => stopped = true;
+  Future<void> stop() async {
+    stopped = true;
+    await _frames.close();
+  }
 
-  void show(PoseFrame frame) => _frames.add(frame);
+  void show(PoseFrame frame) {
+    if (!_frames.isClosed) _frames.add(frame);
+  }
 }
 
 /// Jane opens the camera check for Squats, the first exercise of her plan.
@@ -312,6 +319,18 @@ void main() {
   });
 
   group('Camera check', () {
+    testWidgets('the camera stays on and is listened to while the check is open', (
+      tester,
+    ) async {
+      final opened = await openSession(tester);
+      // Time passes before the first frame arrives, as with a real webcam.
+      await tester.pump(const Duration(seconds: 2));
+      expect(opened.camera.stopped, isFalse);
+
+      await see(tester, opened.camera, frame(0, brightness: 0.1));
+      expect(guidance(tester), contains('too dark'));
+    });
+
     testWidgets('shows the exercise, what must be in view, and waits', (
       tester,
     ) async {

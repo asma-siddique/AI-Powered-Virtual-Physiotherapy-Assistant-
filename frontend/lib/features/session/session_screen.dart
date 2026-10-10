@@ -43,7 +43,12 @@ class SessionScreen extends ConsumerStatefulWidget {
 }
 
 class _SessionScreenState extends ConsumerState<SessionScreen> {
-  late final PoseSource _source = ref.read(poseSourceProvider);
+  /// Keeps this screen's camera alive while the screen is open. The camera
+  /// provider is auto-disposed, and disposing it stops the camera and closes
+  /// its frames; a plain `ref.read` would let that happen at once, leaving the
+  /// webcam on while no frame ever reached the camera check.
+  late final ProviderSubscription<PoseSource> _sourceSubscription;
+  late final PoseSource _source;
   StreamSubscription<PoseFrame>? _frames;
   ProviderSubscription<AsyncValue<PrecheckRequirements>>? _requirements;
   Timer? _clock;
@@ -96,6 +101,8 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
   @override
   void initState() {
     super.initState();
+    _sourceSubscription = ref.listenManual(poseSourceProvider, (_, _) {});
+    _source = _sourceSubscription.read();
     _requirements = ref.listenManual(
       precheckRequirementsProvider(widget.itemId),
       (_, next) {
@@ -112,6 +119,8 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     _retry?.cancel();
     _frames?.cancel();
     _requirements?.close();
+    // Lets the camera provider go, which stops the camera.
+    _sourceSubscription.close();
     super.dispose();
   }
 
