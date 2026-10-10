@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/api_client.dart';
 import '../auth/auth_models.dart';
 import '../exercises/exercise_models.dart';
+import '../session/session_records.dart';
 
 class InviteCode {
   const InviteCode({
@@ -97,6 +98,13 @@ final planEditsProvider = FutureProvider.autoDispose
           .prescriptionEdits(patientId: plan.patientId, planId: plan.planId),
     );
 
+/// The flagged-session queue, by state: unreviewed | reviewed | all.
+final flaggedSessionsProvider = FutureProvider.autoDispose
+    .family<List<FlaggedSession>, String>(
+      (ref, state) =>
+          ref.watch(physioRepositoryProvider).flaggedSessions(state: state),
+    );
+
 class PhysioRepository {
   PhysioRepository(this._api);
 
@@ -183,6 +191,36 @@ class PhysioRepository {
         PrescriptionEdit.fromJson(item as Map<String, dynamic>),
     ];
   }
+
+  /// Flagged sessions of this physiotherapist's own patients, most recently
+  /// flagged first.
+  Future<List<FlaggedSession>> flaggedSessions({
+    String state = 'unreviewed',
+  }) async => [
+    for (final item
+        in await _api.get('/physio/flagged-sessions?state=$state')
+            as List<dynamic>)
+      FlaggedSession.fromJson(item as Map<String, dynamic>),
+  ];
+
+  /// One session of one of this physiotherapist's patients, in full.
+  Future<SessionDetail> session(String id) async => SessionDetail.fromJson(
+    await _api.get('/physio/sessions/$id') as Map<String, dynamic>,
+  );
+
+  /// Takes a flagged session out of the unreviewed queue.
+  Future<SessionDetail> markSessionReviewed(String id) async =>
+      SessionDetail.fromJson(
+        await _api.post('/physio/sessions/$id/review') as Map<String, dynamic>,
+      );
+
+  /// The finished sessions of one of this physiotherapist's patients.
+  Future<List<SessionBrief>> patientSessions(String patientId) async => [
+    for (final item
+        in await _api.get('/physio/patients/$patientId/sessions')
+            as List<dynamic>)
+      SessionBrief.fromJson(item as Map<String, dynamic>),
+  ];
 
   Future<List<ExercisePlan>> plans(String patientId) async {
     final json =

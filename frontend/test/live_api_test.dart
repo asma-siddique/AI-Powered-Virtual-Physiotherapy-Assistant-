@@ -21,6 +21,10 @@ import 'package:physioai/features/exercises/exercise_models.dart';
 import 'package:physioai/features/notifications/notifications_repository.dart';
 import 'package:physioai/features/patient/patient_repository.dart';
 import 'package:physioai/features/physio/physio_repository.dart';
+import 'package:physioai/features/session/live_session.dart';
+import 'package:physioai/features/session/repetitions.dart';
+
+import 'live_session_test.dart' show armFrame, repFrames;
 
 const _live = bool.fromEnvironment('LIVE_API');
 const _baseUrl = String.fromEnvironment(
@@ -422,6 +426,304 @@ void main() {
       // Signing out ends the session on the server.
       await patientAuth.signOut();
       expect(await patientAuth.restore(), isNull);
+    },
+    skip: _live ? false : 'Needs a running API: see tool/live_api_test.sh',
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  test(
+    'a session of Arm Abduction is counted from camera frames, judged, paused '
+    'and summed up by the live API',
+    () async {
+      Matcher refusedWith(String code) =>
+          throwsA(isA<ApiException>().having((e) => e.code, 'code', code));
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+
+      // A physiotherapist prescribes Arm Abduction to a new patient.
+      final physioApi = _client();
+      await AuthRepository(physioApi).signIn(
+        identifier: _physioEmail,
+        password: _physioPassword,
+        role: UserRole.physiotherapist,
+      );
+      final physioRepo = PhysioRepository(physioApi);
+      final invite = await physioRepo.createInviteCode();
+      final patientApi = _client();
+      final patient = await AuthRepository(patientApi).register(
+        fullName: 'Live Session Patient',
+        identifier: 'session-$stamp@physioai.test',
+        password: 'Recover-2026',
+        inviteCode: invite.code,
+      );
+      final consent = ConsentRepository(patientApi);
+      await consent.acknowledge((await consent.status()).disclaimer.version);
+      final exercise = (await physioRepo.activeExercises()).firstWhere(
+        (e) => e.slug == 'arm-abduction',
+      );
+      await physioRepo.assignPlan(
+        patientId: patient.account.id,
+        name: 'Shoulder week 1',
+        items: [
+          PlanItemDraft(exercise)
+            ..sets = 2
+            ..reps = 3,
+        ],
+      );
+
+      // The patient opens it: the camera check asks for the arms, because the
+      // elbow check needs the wrists.
+      final patientRepo = PatientRepository(patientApi);
+      final item = (await patientRepo.currentPlan())!.items.single;
+      final needs = await patientRepo.precheckRequirements(item.id);
+      expect(needs.exercise.slug, 'arm-abduction');
+      expect(
+        needs.requiredLandmarks,
+        containsAll(['left_shoulder', 'right_hip', 'left_wrist']),
+      );
+      final session = await patientRepo.startSession(
+        itemId: item.id,
+        evidence: {
+          'brightness': 0.6,
+          'held_ms': needs.holdMs + 100,
+          'visibility': {for (final name in needs.requiredLandmarks) name: 0.9},
+        },
+      );
+      expect(session.status, 'active');
+      expect(session.totals.repetitions, 0);
+      final checks = {for (final check in session.checks) check.key: check};
+      expect(checks.keys, containsAll(['trunk_lean', 'elbow_bend']));
+      final trunk = checks['trunk_lean']!;
+      final elbow = checks['elbow_bend']!;
+      expect(trunk.red, isNotNull);
+
+      // The same engine the screen uses, set up the way the screen sets it
+      // up, fed with frames drawn at known angles.
+      final engine = LiveSessionEngine(
+        exerciseSlug: needs.exercise.slug,
+        targetJoints: needs.exercise.targetJoints,
+        checkKeys: [for (final check in session.checks) check.key],
+        sets: needs.sets,
+        repsPerSet: needs.reps,
+        minVisibility: needs.minVisibility,
+        aspectRatio: 4 / 3,
+      );
+      expect(engine.canCount, isTrue);
+      var clock = 0.0;
+      RepetitionDraft perform({double lean = 0, double bend = 0}) {
+        final drafts = [
+          for (final frame in repFrames(clock, lean: lean, elbow: bend))
+            ?engine.add(frame, frame.timeMs),
+        ];
+        clock += 1000;
+        return drafts.single;
+      }
+
+      Future<RecordedRepetition> store(RepetitionDraft draft) => patientRepo
+          .recordRepetition(sessionId: session.id, repetition: draft);
+
+      // Standing still is not a repetition.
+      expect(engine.add(armFrame(clock), clock), isNull);
+
+      // A clean repetition; sending it twice stores it once.
+      final first = perform();
+      final good = await store(first);
+      expect((good.setNumber, good.repNumber), (1, 1));
+      expect(good.tier, FeedbackTier.ok);
+      expect(good.feedback, isEmpty);
+      expect(good.unmeasured, isEmpty);
+      expect(good.sessionStatus, 'active');
+      expect((await store(first)).id, good.id);
+      expect((await patientRepo.session(session.id)).totals.repetitions, 1);
+
+      // Bent elbows, between the check's AMBER and anything worse: the
+      // corrective message comes back and the session carries on.
+      final bent = await store(perform(bend: elbow.amber + 5));
+      expect(bent.tier, FeedbackTier.amber);
+      expect(bent.feedback.single.check, 'elbow_bend');
+      expect(bent.feedback.single.message, elbow.message);
+      expect(bent.feedback.single.value, closeTo(elbow.amber + 5, 0.1));
+      expect(bent.sessionStatus, 'active');
+      expect(bent.pause, isNull);
+
+      // Leaning past the RED threshold pauses the session.
+      final leaning = await store(perform(lean: trunk.red! + 5));
+      expect(leaning.tier, FeedbackTier.red);
+      expect(leaning.sessionStatus, 'paused');
+      expect(leaning.pause!.repetitionId, leaning.id);
+      expect(leaning.pause!.check, 'trunk_lean');
+      expect(leaning.pause!.message, trunk.message);
+
+      // While it is paused nothing more is taken, whatever the app sends.
+      final ignored = perform();
+      await expectLater(store(ignored), refusedWith('session_paused'));
+      final paused = await patientRepo.session(session.id);
+      expect(paused.isPaused, isTrue);
+      expect(paused.pause!.repetitionId, leaning.id);
+      expect(paused.totals.repetitions, 3);
+      engine.rewindToCount(paused.totals.repetitions);
+      expect((engine.currentSet, engine.repsInSet), (2, 0));
+
+      // Only acknowledging that repetition's message lets it continue.
+      await expectLater(
+        patientRepo.acknowledgePause(
+          sessionId: session.id,
+          repetitionId: good.id,
+        ),
+        refusedWith('wrong_repetition'),
+      );
+      final resumed = await patientRepo.acknowledgePause(
+        sessionId: session.id,
+        repetitionId: leaning.id,
+      );
+      expect(resumed.status, 'active');
+      expect(resumed.pause, isNull);
+
+      final after = await store(perform(lean: trunk.info + 1));
+      expect((after.setNumber, after.repNumber), (2, 1));
+      expect(after.tier, FeedbackTier.info);
+
+      // The summary is what the server stored.
+      final ended = await patientRepo.endSession(session.id);
+      expect(ended.status, 'completed');
+      final totals = ended.totals;
+      expect(
+        (totals.repetitions, totals.ok, totals.info, totals.amber, totals.red),
+        (4, 1, 1, 1, 1),
+      );
+      await expectLater(store(perform()), refusedWith('session_not_active'));
+
+      // What it came to (US 4.2): scored by the server, with nothing to
+      // compare against yet.
+      final summary = ended.summary!;
+      expect(summary.formScore, 60); // (100 + 55 + 0 + 85) / 4
+      expect(summary.scoredRepetitions, 4);
+      expect(summary.scoringVersion, isNotEmpty);
+      expect(summary.previous, isNull);
+      expect(summary.trend, contains('first session'));
+
+      // History (US 5.1): the session, its score and every repetition.
+      final listed = await patientRepo.sessions();
+      expect(listed.single.id, session.id);
+      expect(
+        (listed.single.formScore, listed.single.status),
+        (60, 'completed'),
+      );
+      final hourAgo = DateTime.now().subtract(const Duration(hours: 1));
+      expect(
+        (await patientRepo.sessions(
+          exerciseId: exercise.id,
+          since: hourAgo,
+        )).single.id,
+        session.id,
+      );
+      expect(await patientRepo.sessions(until: hourAgo), isEmpty);
+      final detail = await patientRepo.sessionDetail(session.id);
+      expect(
+        [for (final repetition in detail.repetitions) repetition.tier],
+        [
+          FeedbackTier.ok,
+          FeedbackTier.amber,
+          FeedbackTier.red,
+          FeedbackTier.info,
+        ],
+      );
+      expect(detail.repetitions[2].feedback.first.message, trunk.message);
+
+      // A second session of the same exercise is compared with the first.
+      final second = await patientRepo.startSession(
+        itemId: item.id,
+        evidence: {
+          'brightness': 0.6,
+          'held_ms': needs.holdMs + 100,
+          'visibility': {for (final name in needs.requiredLandmarks) name: 0.9},
+        },
+      );
+      await patientRepo.recordRepetition(
+        sessionId: second.id,
+        repetition: RepetitionDraft(
+          setNumber: 1,
+          repNumber: 1,
+          startedMs: 0,
+          endedMs: 2000,
+          measures: const {'trunk_lean': 1, 'elbow_bend': 2},
+        ),
+      );
+      final next = (await patientRepo.endSession(second.id)).summary!;
+      expect(next.formScore, 100);
+      expect(next.previous!.id, session.id);
+      expect(next.scoreChange, 40);
+      expect(
+        [for (final s in await patientRepo.sessions()) s.id],
+        [second.id, session.id],
+      );
+
+      // The flagged queue (US 5.2): the RED put the first session in front
+      // of the physiotherapist, who was told, and it stays until reviewed.
+      final waiting = await physioRepo.flaggedSessions();
+      final entry = waiting.singleWhere((e) => e.session.id == session.id);
+      expect(entry.patient.fullName, 'Live Session Patient');
+      expect(entry.reasons, ['Paused for safety']);
+      expect(waiting.map((e) => e.session.id), isNot(contains(second.id)));
+      expect(
+        (await NotificationsRepository(
+          physioApi,
+        ).feed()).items.map((n) => n.kind),
+        contains('session_flagged'),
+      );
+      expect((await physioRepo.session(session.id)).repetitions, hasLength(4));
+      expect(
+        (await physioRepo.patientSessions(patient.account.id)).map((s) => s.id),
+        [second.id, session.id],
+      );
+      final reviewed = await physioRepo.markSessionReviewed(session.id);
+      expect(reviewed.isReviewed, isTrue);
+      expect(
+        (await physioRepo.flaggedSessions()).map((e) => e.session.id),
+        isNot(contains(session.id)),
+      );
+      final done = await physioRepo.flaggedSessions(state: 'reviewed');
+      expect(
+        done.singleWhere((e) => e.session.id == session.id).reviewedBy,
+        isNotNull,
+      );
+      // A session that was never flagged cannot be marked.
+      await expectLater(
+        physioRepo.markSessionReviewed(second.id),
+        refusedWith('not_flagged'),
+      );
+
+      // Another patient cannot read or add to it.
+      final otherApi = _client();
+      await AuthRepository(otherApi).register(
+        fullName: 'Someone Else',
+        identifier: 'other-$stamp@physioai.test',
+        password: 'Recover-2026',
+        inviteCode: (await physioRepo.createInviteCode()).code,
+      );
+      final otherConsent = ConsentRepository(otherApi);
+      await otherConsent.acknowledge(
+        (await otherConsent.status()).disclaimer.version,
+      );
+      await expectLater(
+        PatientRepository(otherApi).session(session.id),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 404)),
+      );
+
+      // The pause and its acknowledgment are on the audit trail.
+      final adminApi = _client();
+      await AuthRepository(adminApi).signIn(
+        identifier: _adminEmail,
+        password: _adminPassword,
+        role: UserRole.admin,
+      );
+      expect(
+        (await AdminRepository(adminApi).auditLog()).map((e) => e.action),
+        containsAll([
+          'session.paused',
+          'session.pause_acknowledged',
+          'session.reviewed',
+        ]),
+      );
     },
     skip: _live ? false : 'Needs a running API: see tool/live_api_test.sh',
     timeout: const Timeout(Duration(seconds: 60)),

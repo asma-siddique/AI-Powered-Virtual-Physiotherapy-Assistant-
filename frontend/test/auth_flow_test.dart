@@ -20,6 +20,8 @@ import 'package:physioai/features/patient/patient_repository.dart';
 import 'package:physioai/features/physio/physio_repository.dart';
 import 'package:physioai/features/session/pose/pose_source.dart';
 import 'package:physioai/features/session/precheck.dart';
+import 'package:physioai/features/session/repetitions.dart';
+import 'package:physioai/features/session/session_records.dart';
 import 'package:physioai/router.dart';
 
 SessionUser user(
@@ -114,6 +116,76 @@ class FakeAuthRepository implements AuthRepository {
 
 class FakePhysioRepository implements PhysioRepository {
   final codes = <InviteCode>[];
+
+  /// The flagged queue as the server holds it, most recently flagged first.
+  final flagged = <FlaggedSession>[];
+
+  /// Sessions that can be opened, by id.
+  final sessionDetails = <String, SessionDetail>{};
+  ApiException? reviewFailure;
+  final reviewed = <String>[];
+
+  @override
+  Future<List<FlaggedSession>> flaggedSessions({
+    String state = 'unreviewed',
+  }) async => [
+    for (final entry in flagged)
+      if (state == 'all' || entry.session.isReviewed == (state == 'reviewed'))
+        entry,
+  ];
+
+  @override
+  Future<SessionDetail> session(String id) async {
+    final found = sessionDetails[id];
+    if (found == null) {
+      throw const ApiException(
+        code: 'not_found',
+        message: 'Session not found.',
+        statusCode: 404,
+      );
+    }
+    return found;
+  }
+
+  @override
+  Future<SessionDetail> markSessionReviewed(String id) async {
+    if (reviewFailure != null) throw reviewFailure!;
+    reviewed.add(id);
+    final at = DateTime.utc(2026, 10, 11, 9);
+    SessionBrief marked(SessionBrief s) => SessionBrief(
+      id: s.id,
+      status: s.status,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt,
+      exercise: s.exercise,
+      sets: s.sets,
+      reps: s.reps,
+      durationSeconds: s.durationSeconds,
+      totals: s.totals,
+      formScore: s.formScore,
+      scoringVersion: s.scoringVersion,
+      flagReasons: s.flagReasons,
+      reviewedAt: at,
+    );
+    for (final (i, entry) in flagged.indexed) {
+      if (entry.session.id == id) {
+        flagged[i] = FlaggedSession(
+          session: marked(entry.session),
+          patient: entry.patient,
+          flaggedAt: entry.flaggedAt,
+          flagThreshold: entry.flagThreshold,
+          reviewedBy: const PersonRef(
+            id: 'physio-1',
+            fullName: 'Dr. Sarah Malik',
+          ),
+        );
+      }
+    }
+    return session(id);
+  }
+
+  @override
+  Future<List<SessionBrief>> patientSessions(String patientId) async => [];
 
   @override
   Future<List<InviteCode>> inviteCodes() async => List.of(codes);
@@ -676,6 +748,96 @@ class FakePatientRepository implements PatientRepository {
     return found;
   }
 
+  /// The checks a session is judged against once it starts.
+  List<SessionCheck> checks = const [];
+  String _status = 'active';
+  SessionPause? _pause;
+
+  ExerciseSession _session(String id) => ExerciseSession(
+    id: id,
+    status: _status,
+    startedAt: DateTime(2026, 10, 9, 17),
+    endedAt: _status == 'completed' ? DateTime(2026, 10, 9, 17, 5) : null,
+    checks: checks,
+    totals: SessionTotals(
+      repetitions: _storedRepetitions.length,
+      ok: _count(FeedbackTier.ok),
+      info: _count(FeedbackTier.info),
+      amber: _count(FeedbackTier.amber),
+      red: _count(FeedbackTier.red),
+    ),
+    pause: _pause,
+  );
+
+  int _count(FeedbackTier tier) =>
+      _storedRepetitions.values.where((stored) => stored.tier == tier).length;
+
+  /// The session of the same exercise before this one, if there was one.
+  PreviousSession? previous;
+
+  /// How long the server says the session lasted.
+  int sessionSeconds = 300;
+
+  /// The server's rule: what each repetition is worth, averaged.
+  SessionSummary _summary() {
+    const points = {
+      FeedbackTier.ok: 100,
+      FeedbackTier.info: 85,
+      FeedbackTier.amber: 55,
+      FeedbackTier.red: 0,
+    };
+    final stored = _storedRepetitions.values;
+    final score = stored.isEmpty
+        ? null
+        : (stored.fold(0, (sum, rep) => sum + points[rep.tier]!) /
+                  stored.length)
+              .round();
+    final before = previous?.formScore;
+    return SessionSummary(
+      durationSeconds: sessionSeconds,
+      totals: _session('').totals,
+      formScore: score,
+      scoredRepetitions: stored.length,
+      scoringVersion: 'rules-1',
+      previous: previous,
+      scoreChange: score == null || before == null ? null : score - before,
+    );
+  }
+
+  /// The patient's finished sessions, most recent first.
+  final history = <SessionBrief>[];
+  final sessionDetails = <String, SessionDetail>{};
+  ApiException? historyFailure;
+
+  @override
+  Future<List<SessionBrief>> sessions({
+    String? exerciseId,
+    DateTime? since,
+    DateTime? until,
+  }) async {
+    if (historyFailure != null) throw historyFailure!;
+    return [
+      for (final session in history)
+        if ((exerciseId == null || session.exercise.id == exerciseId) &&
+            (since == null || !session.startedAt.isBefore(since)) &&
+            (until == null || session.startedAt.isBefore(until)))
+          session,
+    ];
+  }
+
+  @override
+  Future<SessionDetail> sessionDetail(String id) async {
+    final found = sessionDetails[id];
+    if (found == null) {
+      throw const ApiException(
+        code: 'not_found',
+        message: 'Session not found.',
+        statusCode: 404,
+      );
+    }
+    return found;
+  }
+
   @override
   Future<ExerciseSession> startSession({
     required String itemId,
@@ -683,22 +845,147 @@ class FakePatientRepository implements PatientRepository {
   }) async {
     started.add((itemId: itemId, evidence: evidence));
     if (startFailure != null) throw startFailure!;
-    return ExerciseSession(
-      id: 'session-${started.length}',
-      status: 'active',
-      startedAt: DateTime(2026, 10, 9, 17),
+    return _session('session-${started.length}');
+  }
+
+  /// Every repetition the app tried to store, including retries.
+  final repetitionWrites = <({String sessionId, RepetitionDraft repetition})>[];
+  ApiException? repetitionFailure;
+  final _storedRepetitions = <String, RecordedRepetition>{};
+
+  /// What the server would hold: one repetition for each key it was sent.
+  List<RecordedRepetition> get storedRepetitions =>
+      List.unmodifiable(_storedRepetitions.values);
+
+  /// The server's rule: the first threshold reached, from the top down.
+  static FeedbackTier _tierOf(double value, SessionCheck check) {
+    if (check.red != null && value >= check.red!) return FeedbackTier.red;
+    if (value >= check.amber) return FeedbackTier.amber;
+    if (value >= check.info) return FeedbackTier.info;
+    return FeedbackTier.ok;
+  }
+
+  @override
+  Future<RecordedRepetition> recordRepetition({
+    required String sessionId,
+    required RepetitionDraft repetition,
+  }) async {
+    repetitionWrites.add((sessionId: sessionId, repetition: repetition));
+    if (repetitionFailure != null) throw repetitionFailure!;
+    // Like the server, a key seen before returns what was stored the first time.
+    final key = '$sessionId/${repetition.clientKey}';
+    final before = _storedRepetitions[key];
+    if (before != null) return before;
+    if (_status == 'paused') {
+      throw const ApiException(
+        code: 'session_paused',
+        message: 'Read the message on screen before you continue.',
+        statusCode: 409,
+      );
+    }
+    if (_status != 'active') {
+      throw const ApiException(
+        code: 'session_not_active',
+        message: 'This session has already ended.',
+        statusCode: 409,
+      );
+    }
+
+    final feedback = <RepetitionFeedback>[
+      for (final check in checks)
+        if (repetition.measures[check.key] case final value?)
+          if (_tierOf(value, check) != FeedbackTier.ok)
+            RepetitionFeedback(
+              check: check.key,
+              label: check.label,
+              tier: _tierOf(value, check),
+              value: value,
+              message: check.message,
+            ),
+    ]..sort((a, b) => b.tier.index.compareTo(a.tier.index));
+    final tier = feedback.isEmpty ? FeedbackTier.ok : feedback.first.tier;
+    final id = 'repetition-${_storedRepetitions.length + 1}';
+    if (tier == FeedbackTier.red) {
+      _status = 'paused';
+      _pause = SessionPause(
+        repetitionId: id,
+        check: feedback.first.check,
+        message: feedback.first.message,
+      );
+    }
+    return _storedRepetitions[key] = RecordedRepetition(
+      id: id,
+      setNumber: repetition.setNumber,
+      repNumber: repetition.repNumber,
+      startedMs: repetition.startedMs,
+      endedMs: repetition.endedMs,
+      tier: tier,
+      feedback: feedback,
+      unmeasured: [
+        for (final check in checks)
+          if (repetition.measures[check.key] == null) check.key,
+      ],
+      sessionStatus: _status,
+      pause: tier == FeedbackTier.red ? _pause : null,
     );
+  }
+
+  /// The session is paused somewhere the app did not see, as it would be
+  /// after a RED repetition sent from another tab.
+  void pauseElsewhere(String message) {
+    _status = 'paused';
+    _pause = SessionPause(
+      repetitionId: 'repetition-elsewhere',
+      check: 'trunk_lean',
+      message: message,
+    );
+  }
+
+  int sessionReads = 0;
+
+  @override
+  Future<ExerciseSession> session(String id) async {
+    sessionReads++;
+    return _session(id);
+  }
+
+  ApiException? acknowledgeFailure;
+  final acknowledged = <String>[];
+
+  @override
+  Future<ExerciseSession> acknowledgePause({
+    required String sessionId,
+    required String repetitionId,
+  }) async {
+    if (acknowledgeFailure != null) throw acknowledgeFailure!;
+    if (_pause?.repetitionId != repetitionId) {
+      throw const ApiException(
+        code: 'wrong_repetition',
+        message: 'That is not the repetition this session is paused on.',
+        statusCode: 409,
+      );
+    }
+    acknowledged.add(repetitionId);
+    _status = 'active';
+    _pause = null;
+    return _session(sessionId);
   }
 
   @override
   Future<ExerciseSession> endSession(String id) async {
     if (endFailure != null) throw endFailure!;
     ended.add(id);
+    _status = 'completed';
+    _pause = null;
+    final session = _session(id);
     return ExerciseSession(
-      id: id,
-      status: 'completed',
-      startedAt: DateTime(2026, 10, 9, 17),
-      endedAt: DateTime(2026, 10, 9, 17, 5),
+      id: session.id,
+      status: session.status,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      checks: session.checks,
+      totals: session.totals,
+      summary: _summary(),
     );
   }
 }

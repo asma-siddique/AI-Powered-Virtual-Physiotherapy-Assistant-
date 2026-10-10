@@ -25,10 +25,12 @@ class ExerciseBrief {
     required this.targetJoints,
     required this.instructions,
     this.isActive = true,
+    this.slug = '',
   });
 
   factory ExerciseBrief.fromJson(Map<String, dynamic> json) => ExerciseBrief(
     id: json['id'] as String,
+    slug: json['slug'] as String? ?? '',
     name: json['name'] as String,
     domain: json['domain'] as String,
     bodyArea: json['body_area'] as String,
@@ -42,6 +44,10 @@ class ExerciseBrief {
   );
 
   final String id;
+
+  /// The exercise's fixed short name ("arm-abduction"), which the app uses to
+  /// find how its repetitions are counted. Empty when the server did not say.
+  final String slug;
   final String name;
   final String domain;
   final String bodyArea;

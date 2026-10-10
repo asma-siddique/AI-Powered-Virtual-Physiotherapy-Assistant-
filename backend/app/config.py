@@ -2,7 +2,7 @@ import secrets
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_STATE_DIR = Path.home() / ".physioai"
@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     lockout_duration_minutes: int = 15
 
     invite_code_ttl_days: int = 7
+
+    # A session whose form score is below this is put in its physiotherapist's
+    # flagged queue (US 5.2). A session with a RED repetition always is.
+    flag_score_below: int = Field(default=60, ge=0, le=100)
 
     cors_origin_regex: str = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 

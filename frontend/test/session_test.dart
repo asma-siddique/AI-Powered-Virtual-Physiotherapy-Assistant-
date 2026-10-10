@@ -552,11 +552,12 @@ void main() {
     });
 
     testWidgets(
-      'ending asks first, saves the session and returns to the plan',
+      'ending asks first, saves the session and shows what was done',
       (tester) async {
         final opened = await openSession(tester);
         await holdGoodSetup(tester, opened.camera);
         await tester.pump(const Duration(seconds: 65));
+        opened.patient.sessionSeconds = 68;
 
         await tapKey(tester, 'end-session');
         expect(find.text('End this session?'), findsOneWidget);
@@ -568,17 +569,34 @@ void main() {
         await tapKey(tester, 'confirm-end-session');
 
         expect(opened.patient.ended, ['session-1']);
-        expect(find.text('Knee plan'), findsOneWidget);
-        // 65 seconds of exercise, plus the moments the two dialogs were open.
+        expect(find.byKey(const Key('session-summary')), findsOneWidget);
+        // The time is the server's, not the clock on the screen.
         expect(
-          find.textContaining(
-            RegExp(r'^Session saved: 1 min 0\d s of Squats\.$'),
+          find.descendant(
+            of: find.byKey(const Key('summary-time')),
+            matching: find.text('1 min 08 s'),
           ),
           findsOneWidget,
         );
+        // Repetitions are not counted for this exercise, so none are claimed.
+        expect(find.byKey(const Key('summary-repetitions')), findsNothing);
         expect(opened.camera.stopped, isTrue);
+
+        await tapKey(tester, 'summary-done');
+        expect(find.text('Knee plan'), findsOneWidget);
       },
     );
+
+    testWidgets('an exercise whose repetitions cannot be counted says so', (
+      tester,
+    ) async {
+      final opened = await openSession(tester);
+      await holdGoodSetup(tester, opened.camera);
+
+      expect(find.byKey(const Key('counting-unavailable')), findsOneWidget);
+      expect(find.byKey(const Key('rep-count')), findsNothing);
+      expect(opened.patient.repetitionWrites, isEmpty);
+    });
 
     testWidgets('"My plan" during a session also asks before ending it', (
       tester,
