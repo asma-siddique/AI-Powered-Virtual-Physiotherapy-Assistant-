@@ -38,12 +38,13 @@ class PhysioDashboardPage extends ConsumerWidget {
               icon: Icons.groups_outlined,
               value: patientCount?.toString() ?? '-',
               label: 'Active patients',
+              accent: AppColors.navy,
             ),
             StatCard(
               icon: Icons.key_outlined,
               value: activeCodes?.toString() ?? '-',
               label: 'Unused invite codes',
-              accent: AppColors.tealDark,
+              accent: AppColors.primary,
             ),
           ],
         ),
@@ -261,16 +262,14 @@ class _PatientRow extends StatelessWidget {
         builder: (context, constraints) => Row(
           children: [
             CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.tealTint,
+              radius: 20,
+              backgroundColor: AppColors.navy,
               child: Text(
-                patient.fullName.isEmpty
-                    ? '?'
-                    : patient.fullName[0].toUpperCase(),
+                _initials(patient.fullName),
                 style: const TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.tealDark,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -368,4 +367,11 @@ class PhysioPatientsPage extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// "MJ" for Marcus Johnson; "?" when there is no name.
+String _initials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+  if (parts.isEmpty) return '?';
+  return parts.take(2).map((p) => p[0].toUpperCase()).join();
 }

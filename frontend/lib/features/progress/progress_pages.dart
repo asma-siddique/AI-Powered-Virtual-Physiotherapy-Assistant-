@@ -1,8 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
+import '../../core/widgets/hologram/holo_figure.dart';
+import '../exercises/exercise_models.dart';
 import '../patient/patient_repository.dart';
 import '../session/session_records.dart';
 import '../shell/page_widgets.dart';
@@ -138,9 +143,36 @@ class _ProgressPageState extends ConsumerState<ProgressPage> {
     ];
     final unscored = inRange.length - points.length;
 
+    // The latest score of each exercise, for the cards along the top.
+    final latest = <String, int?>{};
+    for (final session in sessions) {
+      if (!latest.containsKey(session.exercise.id) ||
+          latest[session.exercise.id] == null) {
+        latest[session.exercise.id] = session.formScore;
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        SizedBox(
+          height: 112,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: exercises.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            itemBuilder: (context, i) {
+              final exercise = exercises.values.elementAt(i);
+              return _ExerciseScoreCard(
+                exercise: exercise,
+                score: latest[exercise.id],
+                selected: exercise.id == exerciseId,
+                onTap: () => setState(() => _exerciseId = exercise.id),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -173,6 +205,18 @@ class _ProgressPageState extends ConsumerState<ProgressPage> {
                           key: Key('progress-range-${range.name}'),
                           label: Text(range.label),
                           selected: range == _range,
+                          labelStyle: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: range == _range
+                                ? Colors.white
+                                : AppColors.text,
+                          ),
+                          selectedColor: AppColors.primary,
+                          side: BorderSide(
+                            color: range == _range
+                                ? AppColors.primary
+                                : AppColors.border,
+                          ),
                           onSelected: (_) => setState(() => _range = range),
                         ),
                     ],
@@ -218,12 +262,19 @@ class _ProgressPageState extends ConsumerState<ProgressPage> {
         if (inRange.isNotEmpty) ...[
           Text('Sessions in this period', style: text.titleLarge),
           const SizedBox(height: 12),
-          for (final session in inRange)
+          for (final (i, session) in inRange.indexed)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: SessionCard(
-                session: session,
-                onOpen: () => _open(context, ref, session),
+              child: DecoratedBox(
+                // Alternate rows sit on a faint wash for easier scanning.
+                decoration: BoxDecoration(
+                  color: i.isOdd ? AppColors.surfaceAlt : Colors.transparent,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: SessionCard(
+                  session: session,
+                  onOpen: () => _open(context, ref, session),
+                ),
               ),
             ),
         ],
@@ -245,4 +296,144 @@ class _ProgressPageState extends ConsumerState<ProgressPage> {
         ? 'Up from $first to $last over $over.'
         : 'Down from $first to $last over $over.';
   }
+}
+
+/// One exercise along the top of Progress: its hologram and latest score.
+class _ExerciseScoreCard extends StatelessWidget {
+  const _ExerciseScoreCard({
+    required this.exercise,
+    required this.score,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ExerciseBrief exercise;
+  final int? score;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = score;
+    final color = value == null
+        ? AppColors.textHint
+        : value > 80
+        ? AppColors.severityGreen
+        : value >= 60
+        ? AppColors.severityAmber
+        : AppColors.severityRed;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: 236,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        border: Border.all(
+          color: selected ? AppColors.primary : AppColors.divider,
+          width: selected ? 2 : 1,
+        ),
+        boxShadow: selected ? AppTheme.elevatedShadow : AppTheme.cardShadow,
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 64,
+                  height: 88,
+                  child: HoloStage(
+                    radius: 12,
+                    child: HoloFigure(
+                      exercise: HoloExercise.of(exercise.slug, exercise.name),
+                      animate: selected,
+                      guides: false,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        exercise.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTheme.headingSmall.copyWith(fontSize: 14),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        value == null ? 'Not scored yet' : 'Latest score',
+                        style: AppTheme.bodyMedium.copyWith(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  width: 46,
+                  height: 46,
+                  child: CustomPaint(
+                    painter: _MiniGauge(value ?? 0, color),
+                    child: Center(
+                      child: Text(
+                        value == null ? '–' : '$value',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniGauge extends CustomPainter {
+  _MiniGauge(this.value, this.color);
+
+  final int value;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = (Offset.zero & size).deflate(3);
+    canvas.drawArc(
+      rect,
+      0,
+      2 * math.pi,
+      false,
+      Paint()
+        ..color = AppColors.divider
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4,
+    );
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      2 * math.pi * value / 100,
+      false,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_MiniGauge old) =>
+      old.value != value || old.color != color;
 }

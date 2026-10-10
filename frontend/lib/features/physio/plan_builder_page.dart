@@ -391,13 +391,13 @@ class _DraftCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 13,
-                backgroundColor: AppColors.primaryTint,
+                backgroundColor: AppColors.navy,
                 child: Text(
                   '${index + 1}',
                   style: const TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
               ),

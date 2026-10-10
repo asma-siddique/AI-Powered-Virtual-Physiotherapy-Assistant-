@@ -77,7 +77,7 @@ class _NotificationBellState extends ConsumerState<NotificationBell> {
       icon: Badge(
         isLabelVisible: unread > 0,
         label: Text('$unread', key: const Key('notification-count')),
-        backgroundColor: AppColors.primary,
+        backgroundColor: AppColors.severityRed,
         child: const Icon(Icons.notifications_none_rounded),
       ),
     );

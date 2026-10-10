@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/animations.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/common.dart';
@@ -16,17 +17,37 @@ class PageIntro extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final heading = Column(
+    final heading = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: text.headlineSmall),
-        if (subtitle != null) ...[
-          const SizedBox(height: 4),
-          Text(
-            subtitle!,
-            style: text.bodyMedium?.copyWith(color: AppColors.textMuted),
+        Container(
+          width: 4,
+          height: subtitle == null ? 28 : 48,
+          margin: const EdgeInsets.only(right: 14, top: 2),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [AppColors.primaryMint, AppColors.primary],
+            ),
+            borderRadius: BorderRadius.circular(4),
           ),
-        ],
+        ),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: text.headlineSmall),
+              if (subtitle != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  style: text.bodyMedium?.copyWith(color: AppColors.textMuted),
+                ),
+              ],
+            ],
+          ),
+        ),
       ],
     );
     // Beside the heading there is no room for an action on a phone.
@@ -72,13 +93,24 @@ class StatCard extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color.lerp(color, Colors.white, 0.15)!, color],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.25),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            child: Icon(icon, color: color, size: 22),
+            child: Icon(icon, color: Colors.white, size: 22),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -192,10 +224,7 @@ class AsyncSection<T> extends StatelessWidget {
     return value.when(
       skipLoadingOnRefresh: true,
       data: builder,
-      loading: () => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 32),
-        child: Center(child: CircularProgressIndicator()),
-      ),
+      loading: () => const LoadingSkeleton(),
       error: (error, _) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -211,6 +240,58 @@ class AsyncSection<T> extends StatelessWidget {
             label: const Text('Try again'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Card-shaped placeholders under a teal shimmer while data loads.
+class LoadingSkeleton extends StatelessWidget {
+  const LoadingSkeleton({super.key, this.rows = 3});
+
+  final int rows;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget bar(double width, double height) => Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.primaryTint,
+        borderRadius: BorderRadius.circular(8),
+      ),
+    );
+    return Semantics(
+      label: 'Loading',
+      child: Shimmer(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < rows; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: Row(
+                    children: [
+                      bar(48, 48),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            bar(double.infinity, 14),
+                            const SizedBox(height: 8),
+                            bar(160, 12),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

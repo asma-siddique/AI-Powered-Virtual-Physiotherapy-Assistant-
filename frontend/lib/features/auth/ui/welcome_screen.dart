@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/animations.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/common.dart';
+import '../../../core/widgets/hologram/holo_figure.dart';
+import '../../../core/widgets/ui_components.dart';
 import 'auth_scaffold.dart';
 
 class WelcomeScreen extends StatelessWidget {
@@ -94,36 +98,71 @@ class _HeroVisual extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AspectRatio(
-      aspectRatio: 1.15,
-      child: AppCard(
-        color: const Color(0xFFF1F3FF),
-        padding: EdgeInsets.zero,
+      aspectRatio: 1.05,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: AppColors.holoGradient,
+          borderRadius: BorderRadius.circular(AppTheme.radiusXL + 4),
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: AppTheme.elevatedShadow,
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Stack(
           children: [
-            const Positioned.fill(child: CustomPaint(painter: _PosePainter())),
+            const Positioned.fill(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(12, 36, 12, 64),
+                child: HoloFigure(
+                  exercise: HoloExercise.squat,
+                  tone: HoloTone.neutral,
+                  semanticLabel: 'A 3D figure performing a squat',
+                ),
+              ),
+            ),
             Positioned(
               left: 16,
               top: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(100),
-                ),
-                child: const Row(
+              child: _GlassChip(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.circle, size: 8, color: AppColors.success),
-                    SizedBox(width: 6),
+                    const Pulse(
+                      scale: 1.3,
+                      child: Icon(
+                        Icons.circle,
+                        size: 8,
+                        color: AppColors.success,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     Text(
                       'Tracking active',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                      style: AppTheme.labelBold.copyWith(
+                        color: AppColors.text,
+                        letterSpacing: 0.2,
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              right: 16,
+              top: 16,
+              child: _GlassChip(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'FORM SCORE',
+                      style: AppTheme.labelBold.copyWith(
+                        color: AppColors.textMuted,
+                        fontSize: 10,
+                      ),
+                    ),
+                    Text(
+                      '92',
+                      style: AppTheme.statNumber.copyWith(fontSize: 26),
                     ),
                   ],
                 ),
@@ -136,24 +175,23 @@ class _HeroVisual extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.purpleTint,
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+                  border: Border.all(color: Colors.white),
+                  boxShadow: AppTheme.cardShadow,
                 ),
                 child: const Row(
                   children: [
-                    Icon(
-                      Icons.auto_awesome_outlined,
-                      size: 18,
-                      color: AppColors.purple,
-                    ),
-                    SizedBox(width: 10),
+                    GlyphTile(icon: Icons.auto_awesome_rounded, size: 34),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'Great form. Keep your knees in line with your toes.',
                         style: TextStyle(
                           fontSize: 14,
                           height: 1.4,
-                          color: AppColors.purpleDark,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.text,
                         ),
                       ),
                     ),
@@ -168,57 +206,24 @@ class _HeroVisual extends StatelessWidget {
   }
 }
 
-/// A simple squat pose drawn as a skeleton overlay: joints and the lines between them.
-class _PosePainter extends CustomPainter {
-  const _PosePainter();
+class _GlassChip extends StatelessWidget {
+  const _GlassChip({required this.child});
+
+  final Widget child;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    Offset at(double x, double y) => Offset(size.width * x, size.height * y);
-    final head = at(0.47, 0.20);
-    final neck = at(0.47, 0.30);
-    final shoulder = at(0.46, 0.33);
-    final hand = at(0.70, 0.36);
-    final hip = at(0.38, 0.55);
-    final knee = at(0.58, 0.62);
-    final ankle = at(0.52, 0.80);
-    final toe = at(0.62, 0.81);
-
-    final bone = Paint()
-      ..color = AppColors.teal
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-    for (final (a, b) in [
-      (neck, shoulder),
-      (shoulder, hand),
-      (shoulder, hip),
-      (hip, knee),
-      (knee, ankle),
-      (ankle, toe),
-    ]) {
-      canvas.drawLine(a, b, bone);
-    }
-    canvas.drawCircle(
-      head,
-      size.shortestSide * 0.055,
-      Paint()
-        ..color = AppColors.teal
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 4,
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        border: Border.all(color: Colors.white),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      child: child,
     );
-    final joint = Paint()..color = Colors.white;
-    final jointRing = Paint()
-      ..color = AppColors.tealDark
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
-    for (final point in [shoulder, hand, hip, knee, ankle]) {
-      canvas.drawCircle(point, 6, joint);
-      canvas.drawCircle(point, 6, jointRing);
-    }
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _Features extends StatelessWidget {
@@ -252,7 +257,7 @@ class _Features extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: AppColors.primary, size: 28),
+              GlyphTile(icon: icon, size: 48),
               const SizedBox(height: 12),
               Text(title, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 4),

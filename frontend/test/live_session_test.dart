@@ -203,6 +203,23 @@ String textOf(WidgetTester tester, String key) =>
 Finder within(String key, String text) =>
     find.descendant(of: find.byKey(Key(key)), matching: find.text(text));
 
+/// Ticks "I understand" on the safety pause, then resumes.
+Future<void> acknowledgePause(WidgetTester tester) async {
+  if (!resumeEnabled(tester)) await tapKey(tester, 'pause-understood');
+  await tapKey(tester, 'acknowledge-pause');
+}
+
+bool resumeEnabled(WidgetTester tester) =>
+    tester
+        .widget<FilledButton>(
+          find.descendant(
+            of: find.byKey(const Key('acknowledge-pause')),
+            matching: find.byType(FilledButton),
+          ),
+        )
+        .onPressed !=
+    null;
+
 void main() {
   setUp(() => _clock = 2000);
 
@@ -592,7 +609,13 @@ void main() {
         expect(opened.patient.repetitionWrites, hasLength(2));
         expect(find.byKey(const Key('safety-pause')), findsOneWidget);
 
+        // Resuming needs the patient to confirm they have read it.
+        expect(resumeEnabled(tester), isFalse);
         await tapKey(tester, 'acknowledge-pause');
+        expect(opened.patient.acknowledged, isEmpty);
+        expect(find.byKey(const Key('safety-pause')), findsOneWidget);
+
+        await acknowledgePause(tester);
 
         expect(opened.patient.acknowledged, ['repetition-2']);
         expect(find.byKey(const Key('safety-pause')), findsNothing);
@@ -614,7 +637,7 @@ void main() {
       await doRep(tester, opened.camera, lean: 25);
       opened.patient.acknowledgeFailure = ApiException.network;
 
-      await tapKey(tester, 'acknowledge-pause');
+      await acknowledgePause(tester);
 
       expect(find.byKey(const Key('pause-error')), findsOneWidget);
       expect(find.byKey(const Key('safety-pause')), findsOneWidget);
@@ -622,7 +645,7 @@ void main() {
       expect(opened.patient.repetitionWrites, hasLength(1));
 
       opened.patient.acknowledgeFailure = null;
-      await tapKey(tester, 'acknowledge-pause');
+      await acknowledgePause(tester);
       expect(find.byKey(const Key('safety-pause')), findsNothing);
     });
 
@@ -672,7 +695,7 @@ void main() {
       expect(textOf(tester, 'pause-message'), 'Stop and rest your shoulder.');
       // The repetition the server refused is not in the count.
       expect(opened.patient.storedRepetitions, hasLength(1));
-      await tapKey(tester, 'acknowledge-pause');
+      await acknowledgePause(tester);
       expect(textOf(tester, 'rep-count'), '1');
     });
 
@@ -702,7 +725,7 @@ void main() {
       await doRep(tester, opened.camera);
       await doRep(tester, opened.camera, elbow: 25);
       await doRep(tester, opened.camera, lean: 25);
-      await tapKey(tester, 'acknowledge-pause');
+      await acknowledgePause(tester);
       await doRep(tester, opened.camera, lean: 6);
 
       await tapKey(tester, 'end-session');

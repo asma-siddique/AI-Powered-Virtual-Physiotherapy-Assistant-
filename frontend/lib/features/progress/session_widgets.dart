@@ -1,18 +1,34 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../../core/animations.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/common.dart';
+import '../../core/widgets/hologram/holo_figure.dart';
 import '../session/repetitions.dart';
 import '../session/session_records.dart';
 
-/// A session's form score, or a plain statement that it has none. A missing
-/// score is never drawn as 0.
+/// A session's form score as a circular gauge, or a plain statement that it
+/// has none. A missing score is never drawn as 0.
 class ScoreBadge extends StatelessWidget {
-  const ScoreBadge({super.key, required this.score, this.size = 56});
+  const ScoreBadge({
+    super.key,
+    required this.score,
+    this.size = 56,
+    this.onDark = false,
+    this.animate = false,
+  });
 
   final int? score;
   final double size;
+
+  /// White number and track, for gradient backgrounds.
+  final bool onDark;
+
+  /// Count up and sweep the arc in when first shown.
+  final bool animate;
 
   static Color colorFor(int score) => score >= 85
       ? AppColors.success
@@ -23,30 +39,108 @@ class ScoreBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = score;
-    final color = value == null ? AppColors.textMuted : colorFor(value);
-    return Semantics(
-      label: value == null ? 'Not scored' : 'Form score $value out of 100',
-      excludeSemantics: true,
-      child: Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: color, width: 3),
-        ),
+    final color = value == null
+        ? AppColors.textHint
+        : onDark
+        ? AppColors.primaryMint
+        : colorFor(value);
+    Widget gauge(int shown) => CustomPaint(
+      painter: _GaugePainter(
+        fraction: value == null ? 0 : shown / 100,
+        color: color,
+        track: onDark
+            ? Colors.white.withValues(alpha: 0.16)
+            : AppColors.divider,
+        stroke: size * (onDark ? 0.075 : 0.085),
+      ),
+      child: Center(
         child: Text(
-          value == null ? '–' : '$value',
+          value == null ? '–' : '$shown',
           style: TextStyle(
-            fontSize: size * 0.36,
+            fontSize: size * (onDark ? 0.34 : 0.34),
             fontWeight: FontWeight.w700,
-            color: color,
+            height: 1,
+            color: onDark ? Colors.white : color,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ),
     );
+    return Semantics(
+      label: value == null ? 'Not scored' : 'Form score $value out of 100',
+      excludeSemantics: true,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: animate && value != null
+            ? CountUp(value: value, builder: (context, shown) => gauge(shown))
+            : gauge(value ?? 0),
+      ),
+    );
   }
+}
+
+class _GaugePainter extends CustomPainter {
+  _GaugePainter({
+    required this.fraction,
+    required this.color,
+    required this.track,
+    required this.stroke,
+  });
+
+  final double fraction;
+  final Color color;
+  final Color track;
+  final double stroke;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = (Offset.zero & size).deflate(stroke / 2 + 1);
+    canvas.drawArc(
+      rect,
+      0,
+      2 * math.pi,
+      false,
+      Paint()
+        ..color = track
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke,
+    );
+    if (fraction <= 0) return;
+    final sweep = 2 * math.pi * fraction.clamp(0.0, 1.0);
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      sweep,
+      false,
+      Paint()
+        ..color = color.withValues(alpha: 0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke * 1.8
+        ..strokeCap = StrokeCap.round
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, stroke * 0.8),
+    );
+    canvas.drawArc(
+      rect,
+      -math.pi / 2,
+      sweep,
+      false,
+      Paint()
+        ..shader = SweepGradient(
+          startAngle: -math.pi / 2,
+          endAngle: -math.pi / 2 + 2 * math.pi,
+          colors: [Color.lerp(color, Colors.white, 0.35)!, color],
+          transform: const GradientRotation(-math.pi / 2),
+        ).createShader(rect)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GaugePainter old) =>
+      old.fraction != fraction || old.color != color;
 }
 
 /// How many repetitions fell in each tier, as pills. Tiers with none are
@@ -66,8 +160,8 @@ class TierBreakdown extends StatelessWidget {
         if (totals.info > 0)
           Pill(
             '${totals.info} to refine',
-            foreground: AppColors.primaryDark,
-            background: AppColors.primaryTint,
+            foreground: AppColors.info,
+            background: AppColors.infoTint,
           ),
         if (totals.amber > 0) Pill.warning('${totals.amber} to work on'),
         if (totals.red > 0)
@@ -106,8 +200,17 @@ class SessionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final totals = session.totals;
+    final accent = totals.red > 0 || session.flagReasons.contains('red')
+        ? AppColors.severityRed
+        : totals.amber > 0 || session.flagReasons.contains('low_score')
+        ? AppColors.severityAmber
+        : session.formScore != null
+        ? AppColors.primaryMint
+        : null;
     return AppCard(
       padding: EdgeInsets.zero,
+      accent: accent,
       child: InkWell(
         key: Key('open-session-${session.id}'),
         borderRadius: BorderRadius.circular(16),
@@ -160,7 +263,18 @@ class SessionCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: AppColors.border),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: AppColors.primaryTint,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: AppColors.primary,
+                ),
+              ),
             ],
           ),
         ),
@@ -358,7 +472,13 @@ class _SessionDetailDialogState extends State<_SessionDetailDialog> {
                   Text('Set ${entry.key}', style: text.titleMedium),
                   const SizedBox(height: 4),
                   for (final repetition in entry.value)
-                    _RepetitionRow(repetition: repetition),
+                    _RepetitionRow(
+                      repetition: repetition,
+                      exercise: HoloExercise.of(
+                        session.exercise.slug,
+                        session.exercise.name,
+                      ),
+                    ),
                 ],
                 if (session.scoringVersion != null) ...[
                   const SizedBox(height: 16),
@@ -384,26 +504,32 @@ class _SessionDetailDialogState extends State<_SessionDetailDialog> {
 }
 
 class _RepetitionRow extends StatelessWidget {
-  const _RepetitionRow({required this.repetition});
+  const _RepetitionRow({required this.repetition, this.exercise});
 
   final RepetitionDetail repetition;
+  final HoloExercise? exercise;
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final (label, foreground, background) = switch (repetition.tier) {
       FeedbackTier.ok => ('Good', AppColors.success, AppColors.successTint),
-      FeedbackTier.info => (
-        'Refine',
-        AppColors.primaryDark,
-        AppColors.primaryTint,
-      ),
+      FeedbackTier.info => ('Refine', AppColors.info, AppColors.infoTint),
       FeedbackTier.amber => (
         'Work on',
         AppColors.warning,
         AppColors.warningTint,
       ),
       FeedbackTier.red => ('Paused', AppColors.error, AppColors.errorTint),
+    };
+    final worst = repetition.feedback.isEmpty
+        ? null
+        : repetition.feedback.first;
+    final tone = switch (repetition.tier) {
+      FeedbackTier.red => HoloTone.red,
+      FeedbackTier.amber => HoloTone.amber,
+      FeedbackTier.info => HoloTone.info,
+      FeedbackTier.ok => HoloTone.correct,
     };
     return Container(
       key: Key('detail-rep-${repetition.setNumber}-${repetition.repNumber}'),
@@ -439,6 +565,25 @@ class _RepetitionRow extends StatelessWidget {
               ],
             ),
           ),
+          if (worst != null && exercise != null) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 64,
+              height: 80,
+              child: HoloStage(
+                radius: 12,
+                tint: foreground,
+                child: HoloFigure(
+                  exercise: exercise!,
+                  fault: HoloFault.fromCheck(worst.check),
+                  tone: tone,
+                  pedestal: false,
+                  guides: false,
+                  animate: false,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -528,21 +673,72 @@ class _TrendPainter extends CustomPainter {
         ? plot.center.dx
         : plot.left + plot.width * (at.millisecondsSinceEpoch - start) / span;
 
-    final line = Paint()
-      ..color = AppColors.primary
-      ..strokeWidth = 2.5
-      ..style = PaintingStyle.stroke
-      ..strokeJoin = StrokeJoin.round;
-    final path = Path();
-    for (final (i, point) in points.indexed) {
-      final at = Offset(x(point.at), y(point.score));
-      i == 0 ? path.moveTo(at.dx, at.dy) : path.lineTo(at.dx, at.dy);
+    // Below 60 is shaded red, 85 and above green: the bands a physio
+    // reads a score against.
+    canvas.drawRect(
+      Rect.fromLTRB(plot.left, y(60), plot.right, plot.bottom),
+      Paint()..color = AppColors.severityRed.withValues(alpha: 0.05),
+    );
+    canvas.drawRect(
+      Rect.fromLTRB(plot.left, plot.top, plot.right, y(85)),
+      Paint()..color = AppColors.severityGreen.withValues(alpha: 0.06),
+    );
+
+    final offsets = [
+      for (final point in points) Offset(x(point.at), y(point.score)),
+    ];
+    final path = Path()..moveTo(offsets.first.dx, offsets.first.dy);
+    for (var i = 1; i < offsets.length; i++) {
+      final a = offsets[i - 1];
+      final b = offsets[i];
+      final mid = (a.dx + b.dx) / 2;
+      path.cubicTo(mid, a.dy, mid, b.dy, b.dx, b.dy);
     }
-    canvas.drawPath(path, line);
-    for (final point in points) {
-      final at = Offset(x(point.at), y(point.score));
-      canvas.drawCircle(at, 5, Paint()..color = AppColors.surface);
-      canvas.drawCircle(at, 4, Paint()..color = AppColors.primary);
+    if (offsets.length > 1) {
+      final fill = Path.from(path)
+        ..lineTo(offsets.last.dx, plot.bottom)
+        ..lineTo(offsets.first.dx, plot.bottom)
+        ..close();
+      canvas.drawPath(
+        fill,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AppColors.primaryMint.withValues(alpha: 0.22),
+              AppColors.primaryMint.withValues(alpha: 0),
+            ],
+          ).createShader(plot),
+      );
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppColors.primary
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+    for (final (i, at) in offsets.indexed) {
+      final last = i == offsets.length - 1;
+      if (last) {
+        canvas.drawCircle(
+          at,
+          11,
+          Paint()..color = AppColors.primaryMint.withValues(alpha: 0.22),
+        );
+      }
+      canvas.drawCircle(at, last ? 7 : 5, Paint()..color = AppColors.surface);
+      canvas.drawCircle(
+        at,
+        last ? 7 : 5,
+        Paint()
+          ..color = AppColors.primary
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = last ? 3 : 2.5,
+      );
     }
 
     void dateLabel(DateTime at, {required bool alignRight}) {

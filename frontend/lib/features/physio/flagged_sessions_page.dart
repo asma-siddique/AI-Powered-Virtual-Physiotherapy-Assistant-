@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/animations.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
 import '../progress/session_widgets.dart';
 import '../session/session_records.dart';
@@ -66,6 +68,19 @@ class _FlaggedSessionsPageState extends ConsumerState<FlaggedSessionsPage> {
           builder: (entries) => entries.isEmpty
               ? AppCard(
                   child: EmptyState(
+                    title: _reviewed ? null : 'All caught up!',
+                    illustration: _reviewed
+                        ? null
+                        : Container(
+                            width: 96,
+                            height: 96,
+                            decoration: const BoxDecoration(
+                              gradient: AppColors.heroGradient,
+                              shape: BoxShape.circle,
+                              boxShadow: AppTheme.elevatedShadow,
+                            ),
+                            child: const CelebrationCheck(size: 96),
+                          ),
                     icon: _reviewed
                         ? Icons.fact_check_outlined
                         : Icons.flag_outlined,

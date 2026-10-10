@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
 import '../auth/auth_controller.dart';
 import '../auth/auth_models.dart';
+import '../exercises/exercise_models.dart';
 import '../notifications/notification_bell.dart';
+import '../patient/patient_repository.dart';
 import 'page_widgets.dart';
 
 class NavItem {
@@ -102,15 +105,41 @@ class RoleShell extends ConsumerWidget {
       onSignOut: () => ref.read(authControllerProvider.notifier).signOut(),
     );
 
+    // The physiotherapist's portal wears navy: clinical, set apart from the
+    // patient's teal.
+    final clinical = role == UserRole.physiotherapist;
+    final barColor = clinical ? AppColors.navy : AppColors.surface;
+    final onBar = clinical ? Colors.white : AppColors.text;
+    final barIcons = clinical ? Colors.white : AppColors.primary;
+    Widget bell() => IconButtonTheme(
+      data: IconButtonThemeData(
+        style: IconButton.styleFrom(foregroundColor: barIcons),
+      ),
+      child: const NotificationBell(),
+    );
+
     if (!wide) {
       return Scaffold(
         appBar: AppBar(
-          title: Text(title, style: Theme.of(context).textTheme.titleLarge),
-          actions: const [NotificationBell(), SizedBox(width: 8)],
-          shape: const Border(bottom: BorderSide(color: AppColors.divider)),
+          backgroundColor: barColor,
+          foregroundColor: onBar,
+          iconTheme: IconThemeData(color: barIcons),
+          title: Text(
+            title,
+            style: AppTheme.headingMedium.copyWith(color: onBar),
+          ),
+          actions: [bell(), const SizedBox(width: 8)],
+          shape: Border(
+            bottom: BorderSide(
+              color: clinical ? AppColors.navy : AppColors.divider,
+            ),
+          ),
         ),
         drawer: Drawer(child: SafeArea(child: sidebar)),
         body: child,
+        bottomNavigationBar: role == UserRole.patient
+            ? _PatientNavBar(location: location)
+            : null,
       );
     }
 
@@ -124,20 +153,23 @@ class RoleShell extends ConsumerWidget {
                 Container(
                   height: 64,
                   padding: const EdgeInsets.symmetric(horizontal: 40),
-                  decoration: const BoxDecoration(
-                    color: AppColors.surface,
+                  decoration: BoxDecoration(
+                    color: clinical ? null : barColor,
+                    gradient: clinical ? AppColors.cardGradient : null,
                     border: Border(
-                      bottom: BorderSide(color: AppColors.divider),
+                      bottom: BorderSide(
+                        color: clinical ? AppColors.navy : AppColors.divider,
+                      ),
                     ),
                   ),
                   child: Row(
                     children: [
                       Text(
                         title,
-                        style: Theme.of(context).textTheme.titleLarge,
+                        style: AppTheme.headingMedium.copyWith(color: onBar),
                       ),
                       const Spacer(),
-                      const NotificationBell(),
+                      bell(),
                       const SizedBox(width: 8),
                       Tooltip(
                         message: 'Account & security',
@@ -157,7 +189,8 @@ class RoleShell extends ConsumerWidget {
                                 const SizedBox(width: 10),
                                 Text(
                                   account.fullName,
-                                  style: Theme.of(context).textTheme.labelLarge,
+                                  style: Theme.of(context).textTheme.labelLarge
+                                      ?.copyWith(color: onBar),
                                 ),
                               ],
                             ),
@@ -185,15 +218,28 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CircleAvatar(
-      radius: 18,
-      backgroundColor: role.tint,
+    return Container(
+      width: 36,
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: role.accent,
+        border: Border.all(color: Colors.white, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: role.accent.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Text(
         account.initials,
-        style: TextStyle(
+        style: const TextStyle(
           fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: role.accent,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
         ),
       ),
     );
@@ -258,6 +304,8 @@ class _Sidebar extends StatelessWidget {
                     child: _NavTile(
                       item: item,
                       selected: item == active,
+                      accent: role.accent,
+                      tint: role.tint,
                       onTap: () => onNavigate(item),
                     ),
                   ),
@@ -306,6 +354,8 @@ class _Sidebar extends StatelessWidget {
               '',
             ),
             selected: securitySelected,
+            accent: role.accent,
+            tint: role.tint,
             onTap: onOpenSecurity,
           ),
           const SizedBox(height: 4),
@@ -313,6 +363,8 @@ class _Sidebar extends StatelessWidget {
             key: const Key('sign-out'),
             item: const NavItem('Log out', Icons.logout_rounded, ''),
             selected: false,
+            accent: role.accent,
+            tint: role.tint,
             onTap: onSignOut,
           ),
         ],
@@ -327,29 +379,43 @@ class _NavTile extends StatelessWidget {
     required this.item,
     required this.selected,
     required this.onTap,
+    required this.accent,
+    required this.tint,
   });
 
   final NavItem item;
   final bool selected;
   final VoidCallback onTap;
+  final Color accent;
+  final Color tint;
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.primary : AppColors.text;
+    final color = selected ? accent : AppColors.text;
     return Material(
-      color: selected ? AppColors.primaryTint : Colors.transparent,
-      borderRadius: BorderRadius.circular(8),
+      color: selected ? tint : Colors.transparent,
+      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           child: Row(
             children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 3,
+                height: 18,
+                margin: const EdgeInsets.only(right: 9),
+                decoration: BoxDecoration(
+                  color: selected ? accent : Colors.transparent,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
               Icon(
                 item.icon,
                 size: 20,
-                color: selected ? AppColors.primary : AppColors.textMuted,
+                color: selected ? accent : AppColors.textMuted,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -360,6 +426,152 @@ class _NavTile extends StatelessWidget {
                     fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                     color: color,
                   ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The patient's bottom navigation on a phone: four destinations and a
+/// raised teal "Live" button in the middle that starts the next exercise.
+class _PatientNavBar extends ConsumerWidget {
+  const _PatientNavBar({required this.location});
+
+  final String location;
+
+  static const _items = [
+    NavItem('Home', Icons.home_rounded, '/patient'),
+    NavItem('Exercises', Icons.fitness_center_rounded, '/patient/plan'),
+    NavItem('Progress', Icons.insights_rounded, '/patient/progress'),
+    NavItem('Profile', Icons.person_outline_rounded, '/patient/security'),
+  ];
+
+  bool _active(NavItem item) => item.path == '/patient'
+      ? location == item.path
+      : location == item.path || location.startsWith('${item.path}/');
+
+  void _goLive(BuildContext context, WidgetRef ref) {
+    final plan = ref.read(patientPlanProvider).valueOrNull;
+    for (final item in plan?.items ?? const <PlanItem>[]) {
+      if (item.exercise.isActive) {
+        context.go('/patient/session/${item.id}');
+        return;
+      }
+    }
+    context.go('/patient/plan');
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    Widget tab(NavItem item) {
+      final active = _active(item);
+      final color = active ? AppColors.primary : AppColors.textHint;
+      return Expanded(
+        child: InkResponse(
+          onTap: () => context.go(item.path),
+          radius: 32,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(item.icon, color: color, size: 24),
+              const SizedBox(height: 3),
+              Text(
+                item.label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                  color: color,
+                ),
+              ),
+              const SizedBox(height: 3),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: active ? 5 : 0,
+                height: 5,
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 16,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 72,
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              Row(
+                children: [
+                  tab(_items[0]),
+                  tab(_items[1]),
+                  const SizedBox(width: 76),
+                  tab(_items[2]),
+                  tab(_items[3]),
+                ],
+              ),
+              Positioned(
+                top: -20,
+                child: Column(
+                  children: [
+                    Tooltip(
+                      message: 'Start a live session',
+                      child: Material(
+                        color: Colors.transparent,
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          key: const Key('nav-live'),
+                          customBorder: const CircleBorder(),
+                          onTap: () => _goLive(context, ref),
+                          child: Ink(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: AppColors.heroGradient,
+                              border: Border.all(color: Colors.white, width: 3),
+                              boxShadow: AppTheme.elevatedShadow,
+                            ),
+                            child: const Icon(
+                              Icons.videocam_rounded,
+                              color: Colors.white,
+                              size: 26,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Live',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
