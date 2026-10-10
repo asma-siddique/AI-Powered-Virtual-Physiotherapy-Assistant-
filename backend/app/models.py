@@ -258,14 +258,26 @@ class ExerciseSession(Base):
 
     __tablename__ = "exercise_sessions"
     __table_args__ = (
-        CheckConstraint("status IN ('active', 'completed', 'abandoned')", name="ck_exercise_sessions_status"),
+        CheckConstraint(
+            "status IN ('active', 'paused', 'completed', 'abandoned')", name="ck_exercise_sessions_status"
+        ),
+        # A paused session is still the patient's one session under way.
         Index(
             "uq_exercise_sessions_active",
             "patient_id",
             unique=True,
-            postgresql_where=text("status = 'active'"),
+            postgresql_where=text("status IN ('active', 'paused')"),
         ),
         Index("ix_exercise_sessions_patient", "patient_id", "started_at"),
+        CheckConstraint(
+            "form_score IS NULL OR form_score BETWEEN 0 AND 100", name="ck_exercise_sessions_form_score"
+        ),
+        Index(
+            "ix_exercise_sessions_flagged",
+            "flagged_at",
+            postgresql_where=text("flagged_at IS NOT NULL"),
+        ),
+        Index("ix_exercise_sessions_history", "patient_id", "exercise_template_id", "ended_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -285,6 +297,53 @@ class ExerciseSession(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # What the camera check measured and the thresholds it was judged against.
     precheck: Mapped[dict[str, Any]] = mapped_column(JSON)
+    # Written once, when the session ends: how many repetitions of each tier
+    # it holds, its form score and the version of the rule that produced it.
+    # The score stays empty when there was nothing to score; it is never 0 by
+    # default.
+    totals: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    form_score: Mapped[int | None] = mapped_column(Integer)
+    scored_repetitions: Mapped[int | None] = mapped_column(Integer)
+    scoring_version: Mapped[str | None] = mapped_column(String(20))
+    # Set when the session needs a physiotherapist's attention: a RED
+    # repetition ("red") or a score below the threshold in force ("low_score").
+    flagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    flag_reasons: Mapped[list[str] | None] = mapped_column(JSON)
+    flag_threshold: Mapped[int | None] = mapped_column(Integer)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+
+
+class SessionRepetition(Base):
+    """One counted repetition of a session, with what was measured during it
+    and how the server classified it against the session's own thresholds.
+    This row is the stored event behind any feedback the patient is shown."""
+
+    __tablename__ = "session_repetitions"
+    __table_args__ = (
+        # The app makes the key once per repetition, so a retry stores nothing new.
+        UniqueConstraint("session_id", "client_key", name="uq_session_repetitions_key"),
+        UniqueConstraint("session_id", "set_number", "rep_number", name="uq_session_repetitions_place"),
+        CheckConstraint("tier IN ('ok', 'info', 'amber', 'red')", name="ck_session_repetitions_tier"),
+        Index("ix_session_repetitions_session", "session_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercise_sessions.id"))
+    client_key: Mapped[uuid.UUID] = mapped_column()
+    set_number: Mapped[int] = mapped_column(Integer)
+    rep_number: Mapped[int] = mapped_column(Integer)
+    # Milliseconds since the session started, on the device's clock.
+    started_ms: Mapped[int] = mapped_column(Integer)
+    ended_ms: Mapped[int] = mapped_column(Integer)
+    # Check key -> worst value seen during the repetition, or null when the
+    # body parts it needs were not clearly in view.
+    measures: Mapped[dict[str, Any]] = mapped_column(JSON)
+    tier: Mapped[str] = mapped_column(String(8))
+    feedback: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Set when the patient acknowledges the corrective message of a RED repetition.
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Notification(Base):

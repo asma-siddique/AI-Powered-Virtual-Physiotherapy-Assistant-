@@ -19,6 +19,7 @@ from app.routers import (
     patient_sessions,
     physio,
     physio_plans,
+    physio_sessions,
 )
 
 
@@ -57,6 +58,7 @@ def create_app() -> FastAPI:
     api.include_router(admin_users.router)
     api.include_router(admin_exercises.router)
     api.include_router(physio_plans.router)
+    api.include_router(physio_sessions.router)
     api.include_router(notifications.router)
     app.include_router(api)
 

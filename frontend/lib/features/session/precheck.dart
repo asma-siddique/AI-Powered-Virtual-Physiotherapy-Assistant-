@@ -1,5 +1,7 @@
 import '../exercises/exercise_models.dart';
 import 'pose/pose_models.dart';
+import 'repetitions.dart';
+import 'session_records.dart';
 
 /// What the camera has to show before a session with one exercise can start.
 /// Comes from the API, which judges the result against the same numbers.
@@ -187,6 +189,10 @@ class ExerciseSession {
     required this.status,
     required this.startedAt,
     this.endedAt,
+    this.checks = const [],
+    this.totals = const SessionTotals(),
+    this.pause,
+    this.summary,
   });
 
   factory ExerciseSession.fromJson(Map<String, dynamic> json) =>
@@ -195,12 +201,33 @@ class ExerciseSession {
         status: json['status'] as String,
         startedAt: DateTime.parse(json['started_at'] as String),
         endedAt: DateTime.tryParse(json['ended_at'] as String? ?? ''),
+        checks: [
+          for (final check in json['checks'] as List<dynamic>? ?? const [])
+            SessionCheck.fromJson(check as Map<String, dynamic>),
+        ],
+        totals: SessionTotals.fromJson(json['totals'] as Map<String, dynamic>?),
+        pause: SessionPause.fromJson(json['pause'] as Map<String, dynamic>?),
+        summary: SessionSummary.fromJson(
+          json['summary'] as Map<String, dynamic>?,
+        ),
       );
 
   final String id;
 
-  /// active | completed | abandoned
+  /// active | paused | completed | abandoned
   final String status;
   final DateTime startedAt;
   final DateTime? endedAt;
+
+  /// The thresholds this session is judged against: its own copy.
+  final List<SessionCheck> checks;
+  final SessionTotals totals;
+
+  /// Set while the session is paused on a RED repetition.
+  final SessionPause? pause;
+
+  /// What the session came to; set once it has ended.
+  final SessionSummary? summary;
+
+  bool get isPaused => status == 'paused';
 }

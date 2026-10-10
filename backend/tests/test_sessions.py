@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app import disclaimer, pose
 from app.models import AuditLog, ExerciseSession, Role
-from tests.conftest import bearer, sign_in
+from tests.conftest import CHECK, bearer, sign_in
 
 NOBODY = "00000000-0000-0000-0000-000000000000"
 SESSIONS = "/api/v1/patient/sessions"
@@ -110,7 +110,9 @@ def test_requirements_follow_the_exercises_own_target_joints(client, make, case)
     assert legs["hold_ms"] == pose.HOLD_MS
 
     # An arm exercise asks for arms, not legs: nothing generic about the set.
-    arms = make.exercise("Arm Raise", target_joints=["shoulder", "elbow", "wrist"])
+    arms = make.exercise(
+        "Arm Raise", target_joints=["shoulder", "elbow", "wrist"], checks=[{**CHECK, "key": "elbow_bend"}]
+    )
     case.plan = case.assign("Week 2", arms)
     assert case.requirements().json()["required_landmarks"] == [
         "left_shoulder",
@@ -130,6 +132,25 @@ def test_every_tracked_landmark_has_a_place_in_the_pose_models_33():
         assert set(names) <= set(pose.LANDMARKS)
     # A joint name from an older template adds nothing, but the trunk stays.
     assert pose.required_landmarks(["spine"]) == ["left_shoulder", "right_shoulder", "left_hip", "right_hip"]
+
+
+def test_a_check_asks_for_the_landmarks_it_cannot_be_measured_without():
+    # Arm Abduction names shoulder, elbow and hip, but its elbow check needs the
+    # wrists as well: without them it could never give feedback.
+    assert pose.required_landmarks(["shoulder", "elbow", "hip"], ["trunk_lean", "elbow_bend"]) == [
+        "left_shoulder",
+        "right_shoulder",
+        "left_elbow",
+        "right_elbow",
+        "left_wrist",
+        "right_wrist",
+        "left_hip",
+        "right_hip",
+    ]
+    # A leg check on an arm exercise brings the legs into the camera check.
+    assert "left_knee" in pose.required_landmarks(["shoulder"], ["knee_valgus"])
+    # A check this version cannot measure adds nothing.
+    assert pose.required_landmarks(["hip"], ["something_new"]) == pose.required_landmarks(["hip"])
 
 
 def test_admin_can_only_name_joints_the_camera_check_understands(client, make):
@@ -347,7 +368,19 @@ def test_ending_a_session_records_when_it_finished(client, db, case, time):
     assert response.status_code == 200
     assert response.json()["status"] == "completed" and response.json()["ended_at"] is not None
     entry = db.execute(select(AuditLog).where(AuditLog.action == "session.ended")).scalar_one()
-    assert entry.detail == {"seconds": 240}
+    assert entry.detail == {
+        "seconds": 240,
+        "ended_while_paused": False,
+        "repetitions": 0,
+        "ok": 0,
+        "info": 0,
+        "amber": 0,
+        "red": 0,
+        # Nothing was performed, so there is no score; it is not 0.
+        "form_score": None,
+        "scoring_version": "rules-1",
+        "flag_reasons": [],
+    }
     # Ending it again (a double tap, a retry) changes nothing and records nothing.
     again = client.post(f"{SESSIONS}/{session['id']}/end", headers=case.headers)
     assert again.json() == response.json()

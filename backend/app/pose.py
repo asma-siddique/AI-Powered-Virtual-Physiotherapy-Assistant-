@@ -2,6 +2,8 @@
 before a session may start. This is the single source for both: the app asks
 the API what to look for, and the API judges the result against the same rules."""
 
+from collections.abc import Iterable
+
 # MediaPipe Pose Landmarker (BlazePose) output order: 33 landmarks.
 LANDMARKS = (
     "nose",
@@ -62,11 +64,28 @@ MIN_BRIGHTNESS = 0.25
 HOLD_MS = 1500
 
 
-def required_landmarks(target_joints: list[str]) -> list[str]:
-    """Landmarks that must be visible for an exercise with these target joints,
-    in the pose model's own order."""
+# The joints a check has to see to be measured (see app/pose_features.py). An
+# elbow's bend, for example, cannot be measured without the wrist.
+CHECK_JOINTS = {
+    "trunk_lean": ("shoulder", "hip"),
+    "elbow_bend": ("shoulder", "elbow", "wrist"),
+    "knee_bend": ("hip", "knee", "ankle"),
+    "knee_valgus": ("hip", "knee", "ankle"),
+    "knee_forward": ("hip", "knee", "ankle"),
+    "hip_sag": ("shoulder", "hip", "ankle"),
+}
+
+
+def required_landmarks(target_joints: list[str], check_keys: Iterable[str] = ()) -> list[str]:
+    """Landmarks that must be visible for an exercise with these target joints
+    and these checks, in the pose model's own order. A check that could never
+    be measured would silently never give feedback, so what it needs is asked
+    for before the session starts."""
     needed = set(_TRUNK)
-    for joint in target_joints:
+    joints = list(target_joints)
+    for key in check_keys:
+        joints += CHECK_JOINTS.get(key, ())
+    for joint in joints:
         # A joint name this version does not know adds nothing rather than
         # blocking the patient: the trunk is always required.
         needed.update(JOINT_LANDMARKS.get(joint, ()))

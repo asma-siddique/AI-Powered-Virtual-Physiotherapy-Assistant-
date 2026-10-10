@@ -52,10 +52,35 @@ Camera check and sessions (user story 3.1, and the landmark extraction of 3.2):
 - The guidance is specific and live ("Step back so your legs are visible", "It is too dark to see you clearly"). There is no button to press: the patient is standing well back from the device, so the session starts by itself once the setup has stayed good for 1.5 seconds.
 - A session cannot start any other way. The app sends what it measured, never a "passed" flag, and the API judges it against the same thresholds (`backend/app/pose.py`). If it does not pass, no session row is created, so nothing can ever be scored from a setup that failed the check.
 - A session stores its own copy of the prescription, the template version and the thresholds at the moment it starts. Editing the plan or the thresholds afterwards does not change it.
-- The video never leaves the device. Only the landmark positions are used, and for now only the check's measurements and the session's start and end times are stored.
-- The session screen currently shows the camera with the tracked body drawn over it, the elapsed time and whether the patient is still in view. Counting repetitions (3.3) and form feedback (3.4) are the next features.
+- The video never leaves the device. Only the landmark positions are used. What is stored is the check's measurements, the session's start and end times, and for each repetition the angles measured during it.
 
-Limits to know about: pose tracking is built for the web app only (the Android and iOS builds show a message instead); the pose model and its runtime are loaded from Google's and jsDelivr's servers when a session opens, so that needs an internet connection; and the frame rate on real hardware has not been measured yet.
+The live session (user stories 3.2 to 3.4), for Arm Abduction:
+
+- Joint angles are measured in every frame from the exercise's own target joints and checks (`frontend/lib/features/session/pose/pose_features.dart`, with a Python twin in `backend/app/pose_features.py` held to the same test cases).
+- Repetitions are counted from the angle of the working joint: one for each full movement away from the resting position, to the top, and back (`rep_counter.dart`). A half lift, a single bad camera frame, or a movement lost from view is not counted, and nothing is counted until the resting position has been seen. The screen shows the count, the set, and the time.
+- The app never judges a repetition. It sends what it measured, and the API classifies it against the thresholds the session started with (`backend/app/severity.py`): below INFO is a good repetition, then INFO, AMBER and RED; the repetition's tier is its worst check. The feedback on screen is always the server's reply, so there is a stored record behind everything the patient is shown.
+- INFO and AMBER show the check's corrective message and the session carries on. A RED repetition pauses the session in the same database transaction that stores it. While it is paused the server refuses further repetitions, and it continues only when the patient acknowledges that repetition's message. The pause and the acknowledgment are audited.
+- A repetition whose reply was lost is sent again with the same key and stored once. One that could not be measured for a check is stored as unmeasured for that check rather than guessed.
+- Ending the session shows a summary read from the server: the form score, a comparison with the previous session of the same exercise, time, repetitions, and how many were good, INFO, AMBER and RED.
+- Exercises without a counting profile yet (Leg Abduction, Leg Lunge, Push-ups; Squats has a profile but has not been tried in front of a camera) still open a timed session and say that repetitions are not counted.
+
+Session summary, history and review (user stories 4.2, 5.1 and 5.2):
+
+- **Form score.** When a session ends the server stores its totals and a form score from 0 to 100. Until the classifier of 4.1 exists, the score is a transparent rule (`backend/app/scoring.py`): each repetition is worth 100 (good), 85 (INFO), 55 (AMBER) or 0 (RED), and the score is their average. The version of the rule (`rules-1`) is saved with every session, so a score always says how it was produced. A session with nothing to score has no score; it is never stored or shown as 0.
+- **Summary.** The summary is built only after the session has ended, from repetitions that were each classified when they were stored, and it compares the score with the previous completed session of the same exercise.
+- **Session History** lists every finished session, most recent first. A session opens in full: every repetition, its tier, the corrective message and anything that was not in view. A session left open (a closed tab) is closed and scored when the next one starts, and is marked as not finished.
+- **Progress** plots the form score of one exercise over 30 days, 3 months, 12 months or all time, with the same trend in a sentence. Only sessions that happened and have a score are plotted; a day without a session is simply absent.
+- **Flagged Sessions** for physiotherapists: a session goes into the queue the moment it has a RED repetition, or when it ends with a score below `FLAG_SCORE_BELOW` (60 unless set in `backend/.env`). The physiotherapist is notified, sees the patient, the reason and the full session, and marks it reviewed. Nothing else takes a session out of the queue, and a new RED after a review brings it back. A physiotherapist only ever sees sessions of patients assigned to them.
+
+Limits to know about:
+
+- The points per tier and the flag threshold of 60 are this project's starting values, not derived from REHAB24-6 or reviewed clinically. The score is a rule, not the trained model the user story asks for.
+- The 3-second (summary) and 300 ms (history) targets have not been measured. History is not paginated; a request returns at most 1000 sessions.
+- The live session has been tested with drawn body positions at known angles, in widget tests and against a real API and database. It has **not yet been tried in front of a real webcam**, so the counting angles (arm raised past 70 degrees, back below 30) and how often real tracking noise triggers feedback are unconfirmed.
+- The severity thresholds are provisional (see below), so the feedback is a demonstration of the mechanism, not clinical advice.
+- "Good repetition" (below the INFO threshold) is this project's addition; the user story names only RED, AMBER and INFO.
+- There is no form score yet (4.1 to 4.3), and the depth check of Squats and Push-ups is not measured.
+- Pose tracking is built for the web app only (the Android and iOS builds show a message instead); the pose model and its runtime are loaded from Google's and jsDelivr's servers when a session opens, so that needs an internet connection; and the frame rate on real hardware has not been measured yet.
 
 In-app notifications:
 
@@ -65,7 +90,7 @@ In-app notifications:
 
 The severity thresholds that ship with the five exercises are provisional starting values. They have not yet been derived from the REHAB24-6 labels or reviewed clinically; see the note at the top of `backend/migrations/versions/0003_exercise_templates_and_plans.py`.
 
-Not built yet: joint-angle features, repetition counting and severity feedback (the rest of 3.2, 3.3 and 3.4), scoring and the model (4.1 to 4.3), progress and review (5.1 to 5.3), push notifications, chat and feedback, and the security hardening of epic 8.
+Not built yet: repetition counting for the other exercises, the trained classifier and its monitoring (4.1 and 4.3), pain logging and report export (5.3), reminders (6.1), push notifications, chat and feedback, and the security hardening of epic 8.
 
 ## Run it locally
 
