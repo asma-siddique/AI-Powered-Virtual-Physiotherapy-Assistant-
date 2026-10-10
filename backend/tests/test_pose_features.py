@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from app.pose_features import CHECKS, frame_features
+from app import pose
+from app.pose_features import CHECKS, DEPTH_JOINT, DEPTH_TARGET, depth_shortfall, frame_features
 
 FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "pose_feature_cases.json").read_text())
 TOLERANCE = FIXTURE["tolerance_degrees"]
@@ -99,3 +100,33 @@ def test_a_frame_takes_well_under_ten_milliseconds():
         _run(case)
     per_frame_ms = (time.perf_counter() - start) * 1000 / runs
     assert per_frame_ms < 10
+
+
+def test_depth_is_how_far_the_lowest_point_stayed_short_of_the_target():
+    # Squats and push-ups aim for a right angle at the working joint.
+    assert depth_shortfall("squats", 115) == pytest.approx(25)
+    assert depth_shortfall("push-ups", 100) == pytest.approx(10)
+    # Reaching the target, or going past it, is not short at all.
+    assert depth_shortfall("squats", 90) == 0
+    assert depth_shortfall("push-ups", 80) == 0
+    # An exercise without a depth target has nothing to measure.
+    assert depth_shortfall("arm-abduction", 100) is None
+    # Every exercise with a depth joint has a target, and the other way round.
+    assert set(DEPTH_TARGET) == set(DEPTH_JOINT)
+
+
+def test_the_camera_check_asks_for_what_depth_is_measured_on():
+    # A push-up's depth is its elbow angle, so the wrists have to be in view
+    # even though Push-ups does not name the wrist as a target joint.
+    push_ups = ["shoulder", "elbow", "hip", "knee", "ankle"]
+    assert "left_wrist" not in pose.required_landmarks(push_ups, ["hip_sag"], "push-ups")
+    with_depth = pose.required_landmarks(push_ups, ["hip_sag", "depth"], "push-ups")
+    assert {"left_wrist", "right_wrist"} <= set(with_depth)
+    # A squat's depth is its knee angle: nothing beyond the legs it already needs.
+    legs = ["hip", "knee", "ankle"]
+    assert pose.required_landmarks(legs, ["depth"], "squats") == pose.required_landmarks(legs)
+    # Depth on an exercise without a depth joint adds nothing.
+    assert pose.required_landmarks(legs, ["depth"], "leg-lunge") == pose.required_landmarks(legs)
+    # The camera check and the feature calculation agree on the working joint.
+    for slug, joint in DEPTH_JOINT.items():
+        assert joint in pose.DEPTH_CHECK_JOINTS[slug]

@@ -31,6 +31,22 @@ const jointTriplets = <String, (String, String, String)>{
 /// The working joint whose angle is the "depth" of each exercise.
 const depthJoint = <String, String>{'push-ups': 'elbow', 'squats': 'knee'};
 
+/// The working joint's angle at the target depth: the elbow at a right angle
+/// at the bottom of a push-up, the knee at a right angle (thighs about
+/// parallel to the floor) at the bottom of a squat. Starting values, like the
+/// severity thresholds; not derived from REHAB24-6 or clinically reviewed.
+const depthTarget = <String, double>{'push-ups': 90, 'squats': 90};
+
+/// How many degrees a repetition stopped short of the target depth, from the
+/// lowest working-joint angle reached during it: 0 at or past the target.
+/// This is the value the template's "depth" thresholds are judged against.
+/// Null when the exercise has no depth target.
+double? depthShortfall(String exerciseSlug, double lowestAngle) {
+  final target = depthTarget[exerciseSlug];
+  if (target == null) return null;
+  return math.max(0.0, lowestAngle - target);
+}
+
 /// Everything measured in one frame. A null value means the landmarks it needs
 /// were not clearly in view.
 class FrameFeatures {
