@@ -1,0 +1,4 @@
+# The dataset, the extracted landmarks and trained weights stay on your
+# machine: REHAB24-6 is CC BY-NC 4.0 and too large for the repository.
+data/
+models/
