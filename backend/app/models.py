@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -8,12 +8,14 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
     Identity,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -207,6 +209,46 @@ class ExercisePlan(Base):
     name: Mapped[str] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The prescribed frequency: the days of the week to exercise on, Monday 0
+    # to Sunday 6.
+    frequency_days: Mapped[list[int]] = mapped_column(JSON, server_default="[0, 1, 2, 3, 4, 5, 6]")
+
+
+class ReminderSettings(Base):
+    """When a patient wants to be reminded of their exercises. A patient with
+    no row has the defaults: reminders on, at six in the evening."""
+
+    __tablename__ = "reminder_settings"
+    __table_args__ = (
+        CheckConstraint("time_minutes BETWEEN 0 AND 1439", name="ck_reminder_settings_time"),
+        CheckConstraint(
+            "utc_offset_minutes IS NULL OR utc_offset_minutes BETWEEN -720 AND 840",
+            name="ck_reminder_settings_offset",
+        ),
+    )
+
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean)
+    # Minutes after midnight, on the patient's own clock.
+    time_minutes: Mapped[int] = mapped_column(Integer)
+    # How far the patient's clock is ahead of UTC, as their app last reported
+    # it. Empty until it has: no reminder can be timed without it.
+    utc_offset_minutes: Mapped[int | None] = mapped_column(Integer)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SessionReminder(Base):
+    """A reminder that was sent: one for a plan on a day of the patient's
+    calendar, which is what stops a second one going out."""
+
+    __tablename__ = "session_reminders"
+    __table_args__ = (UniqueConstraint("plan_id", "local_date", name="uq_session_reminders_plan_day"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercise_plans.id"))
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    local_date: Mapped[date] = mapped_column(Date)
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class PlanExercise(Base):
@@ -278,6 +320,11 @@ class ExerciseSession(Base):
             postgresql_where=text("flagged_at IS NOT NULL"),
         ),
         Index("ix_exercise_sessions_history", "patient_id", "exercise_template_id", "ended_at"),
+        CheckConstraint(
+            "(pain_before IS NULL OR pain_before BETWEEN 0 AND 10) "
+            "AND (pain_after IS NULL OR pain_after BETWEEN 0 AND 10)",
+            name="ck_exercise_sessions_pain",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -312,6 +359,15 @@ class ExerciseSession(Base):
     flag_threshold: Mapped[int | None] = mapped_column(Integer)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+    # How much pain the patient reported before and after, 0 to 10. Always
+    # optional: empty means they chose not to answer, never 0.
+    pain_before: Mapped[int | None] = mapped_column(SmallInteger)
+    pain_after: Mapped[int | None] = mapped_column(SmallInteger)
+    patient_note: Mapped[str | None] = mapped_column(String(500))
+    # The physiotherapist's own note on the session.
+    clinician_note: Mapped[str | None] = mapped_column(String(2000))
+    clinician_note_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+    clinician_note_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SessionRepetition(Base):

@@ -143,12 +143,14 @@ class PhysioRepository {
     required String patientId,
     required String name,
     required List<PlanItemDraft> items,
+    List<int> days = ExercisePlan.everyDay,
   }) async => ExercisePlan.fromJson(
     await _api.post(
           '/physio/patients/$patientId/plans',
           body: {
             'name': name,
             'items': [for (final item in items) item.toJson()],
+            'days': days,
           },
         )
         as Map<String, dynamic>,
@@ -213,6 +215,30 @@ class PhysioRepository {
       SessionDetail.fromJson(
         await _api.post('/physio/sessions/$id/review') as Map<String, dynamic>,
       );
+
+  /// Writes or replaces the physiotherapist's note on a session; an empty
+  /// note removes it.
+  Future<SessionDetail> saveSessionNote(String id, String note) async =>
+      SessionDetail.fromJson(
+        await _api.put('/physio/sessions/$id/note', body: {'note': note})
+            as Map<String, dynamic>,
+      );
+
+  /// One patient's progress report as a PDF, for sessions started from
+  /// [since] and before [until].
+  Future<DownloadedFile> patientReport(
+    String patientId, {
+    required DateTime since,
+    required DateTime until,
+  }) => _api.download(
+    Uri(
+      path: '/physio/patients/$patientId/report',
+      queryParameters: {
+        'since': since.toUtc().toIso8601String(),
+        'until': until.toUtc().toIso8601String(),
+      },
+    ).toString(),
+  );
 
   /// The finished sessions of one of this physiotherapist's patients.
   Future<List<SessionBrief>> patientSessions(String patientId) async => [

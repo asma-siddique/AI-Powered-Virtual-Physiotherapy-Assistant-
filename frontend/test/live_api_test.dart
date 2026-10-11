@@ -460,7 +460,7 @@ void main() {
       final exercise = (await physioRepo.activeExercises()).firstWhere(
         (e) => e.slug == 'arm-abduction',
       );
-      await physioRepo.assignPlan(
+      final assigned = await physioRepo.assignPlan(
         patientId: patient.account.id,
         name: 'Shoulder week 1',
         items: [
@@ -468,6 +468,43 @@ void main() {
             ..sets = 2
             ..reps = 3,
         ],
+        // Every day except tomorrow, so the prescribed frequency is not
+        // the default and today is still an exercise day.
+        days: [
+          for (var day = 0; day < 7; day++)
+            if (day != (DateTime.now().weekday % 7)) day,
+        ],
+      );
+      expect(assigned.days, hasLength(6));
+
+      // Reminders (US 6.1): due now, on this device's clock. The server's
+      // own scheduler has to notice and send it, linked to the exercise.
+      final reminderApi = PatientRepository(patientApi);
+      expect((await reminderApi.reminders()).utcOffsetMinutes, isNull);
+      final wallClock = DateTime.now();
+      String two(int n) => n.toString().padLeft(2, '0');
+      final set = await reminderApi.saveReminders(
+        time: '${two(wallClock.hour)}:${two(wallClock.minute)}',
+        utcOffsetMinutes: wallClock.timeZoneOffset.inMinutes,
+      );
+      expect(set.enabled, isTrue);
+      expect(set.days, assigned.days);
+      final inbox = NotificationsRepository(patientApi);
+      AppNotification? reminder;
+      for (var tries = 0; tries < 30 && reminder == null; tries++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        reminder = (await inbox.feed()).items
+            .where((n) => n.kind == 'session_reminder')
+            .firstOrNull;
+      }
+      expect(reminder, isNotNull, reason: 'the scheduler sent no reminder');
+      expect(reminder!.title, 'Time for your exercises');
+      expect(reminder.link, '/patient/session/${assigned.items.single.id}');
+      // And only one, however many times the scheduler runs.
+      await Future<void>.delayed(const Duration(seconds: 5));
+      expect(
+        (await inbox.feed()).items.where((n) => n.kind == 'session_reminder'),
+        hasLength(1),
       );
 
       // The patient opens it: the camera check asks for the arms, because the
@@ -686,6 +723,44 @@ void main() {
         done.singleWhere((e) => e.session.id == session.id).reviewedBy,
         isNotNull,
       );
+      // Pain, notes and the exported report (US 5.3).
+      final rated = await patientRepo.logPain(
+        sessionId: second.id,
+        moment: 'after',
+        score: 4,
+        note: 'A little stiff afterwards.',
+      );
+      expect(
+        (rated.painBefore, rated.painAfter, rated.patientNote),
+        (null, 4, 'A little stiff afterwards.'),
+      );
+      final noted = await physioRepo.saveSessionNote(
+        session.id,
+        'Watch the trunk lean.',
+      );
+      expect(noted.clinicianNote, 'Watch the trunk lean.');
+      expect(
+        (await patientRepo.sessionDetail(session.id)).clinicianNote,
+        'Watch the trunk lean.',
+      );
+      final file = await physioRepo.patientReport(
+        patient.account.id,
+        since: DateTime.now().subtract(const Duration(days: 7)),
+        until: DateTime.now().add(const Duration(minutes: 1)),
+      );
+      expect(String.fromCharCodes(file.bytes.take(8)), '%PDF-1.4');
+      expect(file.bytes.length, greaterThan(1500));
+      expect(file.filename, matches(RegExp(r'^physioai-report-.+\.pdf$')));
+      // A report is the physiotherapist's to export, nobody else's.
+      await expectLater(
+        PhysioRepository(patientApi).patientReport(
+          patient.account.id,
+          since: DateTime.now().subtract(const Duration(days: 7)),
+          until: DateTime.now(),
+        ),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 403)),
+      );
+
       // A session that was never flagged cannot be marked.
       await expectLater(
         physioRepo.markSessionReviewed(second.id),
@@ -722,6 +797,9 @@ void main() {
           'session.paused',
           'session.pause_acknowledged',
           'session.reviewed',
+          'session.pain_logged',
+          'session.note_saved',
+          'report.exported',
         ]),
       );
     },

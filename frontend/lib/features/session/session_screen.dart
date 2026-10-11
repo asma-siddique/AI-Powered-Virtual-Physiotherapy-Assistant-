@@ -16,6 +16,7 @@ import '../../core/widgets/ui_components.dart';
 import '../patient/patient_repository.dart';
 import '../shell/page_widgets.dart';
 import 'live_session.dart';
+import 'pain.dart';
 import 'pose/pose_models.dart';
 import 'pose/pose_source.dart';
 import 'precheck.dart';
@@ -43,7 +44,12 @@ class SessionScreen extends ConsumerStatefulWidget {
 }
 
 class _SessionScreenState extends ConsumerState<SessionScreen> {
-  late final PoseSource _source = ref.read(poseSourceProvider);
+  /// Holds the camera for as long as this screen is open. The camera is
+  /// listened to, not just read: read without a listener, its provider would
+  /// switch it off again a moment after handing it over, leaving a live
+  /// picture with no body tracking behind it.
+  late final ProviderSubscription<PoseSource> _cameraHold;
+  late final PoseSource _source;
   StreamSubscription<PoseFrame>? _frames;
   ProviderSubscription<AsyncValue<PrecheckRequirements>>? _requirements;
   Timer? _clock;
@@ -55,6 +61,11 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
   bool _cameraOn = false;
 
   ExerciseSession? _session;
+
+  /// The optional pain rating chosen during the camera check. It is sent
+  /// once the session exists, and never holds the session up.
+  int? _painBefore;
+  bool _painBeforeSaved = false;
   bool _starting = false;
   bool _ending = false;
   String? _startError;
@@ -96,6 +107,8 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
   @override
   void initState() {
     super.initState();
+    _cameraHold = ref.listenManual(poseSourceProvider, (_, _) {});
+    _source = _cameraHold.read();
     _requirements = ref.listenManual(
       precheckRequirementsProvider(widget.itemId),
       (_, next) {
@@ -112,6 +125,8 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     _retry?.cancel();
     _frames?.cancel();
     _requirements?.close();
+    // Letting go of the camera is what switches it off.
+    _cameraHold.close();
     super.dispose();
   }
 
@@ -153,6 +168,21 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     }
   }
 
+  /// Sends the pain rating chosen before the session, if there is one.
+  /// It is optional information, so a failure is not shown; it is tried
+  /// once more when the session ends.
+  Future<void> _savePainBefore() async {
+    final session = _session;
+    final score = _painBefore;
+    if (session == null || score == null || _painBeforeSaved) return;
+    try {
+      await ref
+          .read(patientRepositoryProvider)
+          .logPain(sessionId: session.id, moment: 'before', score: score);
+      _painBeforeSaved = true;
+    } on ApiException catch (_) {}
+  }
+
   Future<void> _start() async {
     final tracker = _tracker!;
     setState(() => _starting = true);
@@ -177,6 +207,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
           aspectRatio: _source.aspectRatio,
         );
       });
+      unawaited(_savePainBefore());
       _clock = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _elapsed += const Duration(seconds: 1));
       });
@@ -368,6 +399,8 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
       _retry?.cancel();
       _send();
       await _sending;
+      if (!mounted) return;
+      await _savePainBefore();
       if (!mounted) return;
       final ended = await ref
           .read(patientRepositoryProvider)
@@ -937,6 +970,18 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
                     : 'Allow the camera when your browser asks.'),
           ),
         const SizedBox(height: 16),
+        Text('Any pain right now?', style: text.titleSmall),
+        Text(
+          'Optional. Your session starts either way.',
+          style: text.bodySmall?.copyWith(color: AppColors.textMuted),
+        ),
+        const SizedBox(height: 8),
+        PainScale(
+          name: 'pain-before',
+          value: _painBefore,
+          onChanged: (value) => setState(() => _painBefore = value),
+        ),
+        const SizedBox(height: 16),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1400,7 +1445,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     if (score == null) {
       cheer = 'Every session counts. Well done for showing up.';
     } else if (score > 85) {
-      cheer = 'Excellent session! 🎉';
+      cheer = 'Excellent session!';
     } else if (score >= 70) {
       cheer = 'Great progress! Keep it up.';
     } else {
@@ -1642,6 +1687,8 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
                         ),
                       ],
                     ],
+                    const SizedBox(height: 14),
+                    PainAfterCard(sessionId: ended.id),
                     const SizedBox(height: 22),
                     PrimaryButton(
                       buttonKey: const Key('summary-done'),

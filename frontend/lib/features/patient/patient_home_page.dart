@@ -7,6 +7,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/hologram/holo_figure.dart';
+import '../../core/widgets/hologram/holo_scene.dart';
 import '../../core/widgets/ui_components.dart';
 import '../auth/auth_controller.dart';
 import '../exercises/exercise_models.dart';
@@ -91,13 +92,13 @@ class PatientHomePage extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _Hero(
-          greeting:
-              '${greetingFor(DateTime.now())}, ${user.account.firstName} 👋',
+          greeting: '${greetingFor(DateTime.now())}, ${user.account.firstName}',
           subtitle: switch (count) {
             null => 'Your account is linked to your physiotherapist.',
             1 => 'You have 1 exercise in your plan.',
             _ => 'You have $count exercises in your plan.',
           },
+          next: upNext,
           onStart: upNext == null
               ? null
               : () => context.go('/patient/session/${upNext.id}'),
@@ -308,136 +309,173 @@ class PatientHomePage extends ConsumerWidget {
   }
 }
 
-/// The greeting: navy-to-teal gradient with the PhysioAI hologram standing
-/// on its pedestal.
+/// The greeting, in the dark where the holograms live: the figure performs
+/// the exercise that is up next in the plan.
 class _Hero extends StatelessWidget {
-  const _Hero({required this.greeting, required this.subtitle, this.onStart});
+  const _Hero({
+    required this.greeting,
+    required this.subtitle,
+    this.next,
+    this.onStart,
+  });
 
   final String greeting;
   final String subtitle;
+
+  /// The exercise that is up next, if any is left today.
+  final PlanItem? next;
   final VoidCallback? onStart;
 
   @override
   Widget build(BuildContext context) {
     final narrow = MediaQuery.sizeOf(context).width < 600;
+    final upNext = next;
     return Container(
       decoration: BoxDecoration(
-        gradient: AppColors.cardGradient,
         borderRadius: BorderRadius.circular(AppTheme.radiusXL),
         boxShadow: AppTheme.elevatedShadow,
       ),
       clipBehavior: Clip.antiAlias,
-      child: Stack(
-        children: [
-          Positioned(
-            right: -60,
-            top: -80,
-            child: Container(
-              width: 280,
-              height: 280,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    AppColors.primaryMint.withValues(alpha: 0.35),
-                    AppColors.primaryMint.withValues(alpha: 0),
-                  ],
-                ),
+      child: HoloNight(
+        horizon: 0.7,
+        child: Stack(
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                narrow ? 20 : AppTheme.paddingXXL,
+                narrow ? 20 : 28,
+                narrow ? 8 : 16,
+                narrow ? 20 : 28,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(100),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.18),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Pulse(
+                                scale: 1.3,
+                                child: Icon(
+                                  Icons.circle,
+                                  size: 8,
+                                  color: AppColors.primaryMint,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'AI COACH READY',
+                                style: AppTheme.labelBold.copyWith(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          greeting,
+                          style: AppTheme.displayLarge.copyWith(
+                            color: Colors.white,
+                            fontSize: narrow ? 24 : 30,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          subtitle,
+                          style: AppTheme.bodyLarge.copyWith(
+                            color: AppColors.primaryMint,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (upNext != null) ...[
+                          const SizedBox(height: 16),
+                          HoloChip(
+                            key: const Key('up-next'),
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: 'UP NEXT   ',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.6,
+                                      ),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 1.1,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text:
+                                        '${upNext.exercise.name}  ·  '
+                                        '${upNext.prescription}',
+                                  ),
+                                ],
+                              ),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (onStart != null) ...[
+                          const SizedBox(height: 20),
+                          FilledButton.icon(
+                            onPressed: onStart,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primaryMint,
+                              foregroundColor: AppColors.night,
+                            ),
+                            icon: const Icon(Icons.play_arrow_rounded),
+                            label: Text(
+                              narrow
+                                  ? 'Start session'
+                                  : 'Start today’s session',
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    width: narrow ? 120 : 300,
+                    height: narrow ? 170 : 300,
+                    child: HoloFigure(
+                      exercise: upNext == null
+                          ? HoloExercise.stand
+                          : HoloExercise.of(
+                              upNext.exercise.slug,
+                              upNext.exercise.name,
+                            ),
+                      tone: HoloTone.correct,
+                      semanticLabel: upNext == null
+                          ? 'Your PhysioAI coach'
+                          : 'A hologram performing ${upNext.exercise.name}',
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              narrow ? 20 : AppTheme.paddingXXL,
-              narrow ? 20 : 28,
-              narrow ? 8 : 16,
-              narrow ? 20 : 28,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(100),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.18),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Pulse(
-                              scale: 1.3,
-                              child: Icon(
-                                Icons.circle,
-                                size: 8,
-                                color: AppColors.primaryMint,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'AI COACH READY',
-                              style: AppTheme.labelBold.copyWith(
-                                color: Colors.white,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        greeting,
-                        style: AppTheme.displayLarge.copyWith(
-                          color: Colors.white,
-                          fontSize: narrow ? 24 : 30,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        subtitle,
-                        style: AppTheme.bodyLarge.copyWith(
-                          color: AppColors.primaryMint,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (onStart != null) ...[
-                        const SizedBox(height: 20),
-                        FilledButton.icon(
-                          onPressed: onStart,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: AppColors.primary,
-                          ),
-                          icon: const Icon(Icons.play_arrow_rounded),
-                          label: Text(
-                            narrow ? 'Start session' : 'Start today’s session',
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: narrow ? 110 : 210,
-                  height: narrow ? 150 : 230,
-                  child: const HoloFigure(
-                    tone: HoloTone.neutral,
-                    semanticLabel: 'Your PhysioAI coach',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -507,9 +545,10 @@ class _ExerciseRow extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 54,
-            height: 62,
+            width: 64,
+            height: 72,
             child: HoloStage(
+              dark: true,
               radius: 12,
               child: HoloFigure(
                 exercise: HoloExercise.of(

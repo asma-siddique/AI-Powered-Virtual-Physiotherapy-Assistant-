@@ -9,6 +9,7 @@ import '../../core/widgets/common.dart';
 import '../auth/auth_controller.dart';
 import '../shell/page_widgets.dart';
 import 'physio_repository.dart';
+import 'report_dialog.dart';
 
 class PhysioDashboardPage extends ConsumerWidget {
   const PhysioDashboardPage({super.key});
@@ -244,9 +245,12 @@ class _InviteRow extends StatelessWidget {
 }
 
 class _PatientRow extends StatelessWidget {
-  const _PatientRow({required this.patient, this.onPlan});
+  const _PatientRow({required this.patient, this.onPlan, this.onReport});
 
   final PatientSummary patient;
+
+  /// Opens the report export for this patient; shown as a button when set.
+  final VoidCallback? onReport;
 
   /// Opens the plan builder for this patient; the row shows a button when set.
   final VoidCallback? onPlan;
@@ -322,6 +326,12 @@ class _PatientRow extends StatelessWidget {
                 child: const Text('Plan'),
               ),
             ],
+            if (onReport != null)
+              TextButton(
+                key: Key('report-for-${patient.id}'),
+                onPressed: onReport,
+                child: const Text('Report'),
+              ),
           ],
         ),
       ),
@@ -361,6 +371,10 @@ class PhysioPatientsPage extends ConsumerWidget {
                   patient: patient,
                   onPlan: () =>
                       context.go('/physio/plan-builder?patient=${patient.id}'),
+                  onReport: () => showDialog<void>(
+                    context: context,
+                    builder: (context) => ReportDialog(patient: patient),
+                  ),
                 ),
           ],
         ),

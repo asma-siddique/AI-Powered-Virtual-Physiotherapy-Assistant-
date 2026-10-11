@@ -1,9 +1,11 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import '../../animations.dart';
+import 'holo_body.dart';
 import 'holo_pose.dart';
 
 export 'holo_pose.dart' show HoloExercise, HoloFault;
@@ -77,6 +79,21 @@ class _Palette {
   };
 }
 
+/// Tells the holograms below it whether they stand on a dark background.
+/// On dark they are drawn as light: see-through in the middle and bright at
+/// the edges. On a light background they are a solid, softly lit body.
+class HoloBackdrop extends InheritedWidget {
+  const HoloBackdrop({super.key, required this.dark, required super.child});
+
+  final bool dark;
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<HoloBackdrop>()?.dark ?? false;
+
+  @override
+  bool updateShouldNotify(HoloBackdrop old) => old.dark != dark;
+}
+
 /// A 3D holographic figure performing an exercise on a glowing pedestal.
 ///
 /// It loops the movement from the resting position to its peak while
@@ -97,6 +114,7 @@ class HoloFigure extends StatefulWidget {
     this.mark = HoloMark.none,
     this.turn = 22,
     this.cycle = const Duration(milliseconds: 2800),
+    this.onDark,
     this.semanticLabel,
   });
 
@@ -117,6 +135,10 @@ class HoloFigure extends StatefulWidget {
 
   /// One repetition of the movement.
   final Duration cycle;
+
+  /// Whether it stands on a dark background; taken from the nearest
+  /// [HoloBackdrop] when not given.
+  final bool? onDark;
   final String? semanticLabel;
 
   @override
@@ -183,6 +205,7 @@ class _HoloFigureState extends State<HoloFigure>
             guides: widget.guides,
             mark: widget.mark,
             standing: widget.exercise == HoloExercise.stand,
+            dark: widget.onDark ?? HoloBackdrop.of(context),
           ),
         ),
       ),
@@ -271,6 +294,7 @@ class _HoloPainter extends CustomPainter {
     required this.guides,
     required this.mark,
     required this.standing,
+    required this.dark,
   }) : _palette = palette,
        super(repaint: clock);
 
@@ -284,8 +308,13 @@ class _HoloPainter extends CustomPainter {
   final bool guides;
   final HoloMark mark;
   final bool standing;
+  final bool dark;
 
   static const _cameraTilt = 11.0;
+
+  /// Where the light comes from, as the viewer sees it: above, to the left
+  /// and in front.
+  static const _light = Vec3(-0.42, 0.62, 0.66);
   static const _focal = 5.2;
 
   @override
@@ -322,10 +351,17 @@ class _HoloPainter extends CustomPainter {
     final groundY = height * (pedestal ? 0.82 : 0.9);
     final centre = _centre;
 
+    // The turn and the camera's tilt as one change of axes, worked out once
+    // for the frame rather than for each of the body's points.
+    Vec3 turned(Vec3 v) =>
+        v.rotate(Vec3.up, yaw).rotate(Vec3.right, -_cameraTilt);
+    final ax = turned(Vec3.right);
+    final ay = turned(Vec3.up);
+    final az = turned(Vec3.forward);
+    Vec3 view(Vec3 v) => ax * v.x + ay * v.y + az * v.z;
+
     _Projected project(Vec3 p) {
-      var v = p - Vec3(centre.x, 0, centre.z);
-      v = v.rotate(Vec3.up, yaw);
-      v = v.rotate(Vec3.right, -_cameraTilt);
+      final v = view(p - Vec3(centre.x, 0, centre.z));
       final k = _focal / (_focal - v.z);
       return _Projected(
         Offset(width / 2 + v.x * unit * k, groundY - v.y * unit * k),
@@ -343,7 +379,7 @@ class _HoloPainter extends CustomPainter {
       _paintPedestal(canvas, project, unit, seconds, moving);
     }
     _paintShadow(canvas, points, unit);
-    _paintBody(canvas, points, joints, project);
+    _paintBody(canvas, points, joints, project, view, unit);
     _paintWireframe(canvas, points, seconds, moving, breathe);
     if (guides) _paintGuides(canvas, points, joints, project);
     _paintHighlights(canvas, points, seconds, moving);
@@ -471,11 +507,17 @@ class _HoloPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           Offset(0, minY),
           Offset(0, maxY),
-          [
-            const Color(0xFFF7F9FC),
-            _palette.base,
-            _palette.deep.withValues(alpha: 0.9),
-          ],
+          dark
+              ? [
+                  _palette.glow.withValues(alpha: 0.6),
+                  _palette.deep.withValues(alpha: 0.55),
+                  const Color(0xFF07131D),
+                ]
+              : [
+                  const Color(0xFFF7F9FC),
+                  _palette.base,
+                  _palette.deep.withValues(alpha: 0.9),
+                ],
           const [0, 0.6, 1],
         ),
     );
@@ -488,11 +530,17 @@ class _HoloPainter extends CustomPainter {
         ..shader = ui.Gradient.radial(
           bounds.center,
           bounds.width / 2,
-          [
-            Colors.white,
-            const Color(0xFFF2F5FA),
-            Color.lerp(_palette.base, Colors.white, 0.4)!,
-          ],
+          dark
+              ? [
+                  _palette.glow.withValues(alpha: 0.34),
+                  _palette.glow.withValues(alpha: 0.08),
+                  _palette.glow.withValues(alpha: 0.24),
+                ]
+              : [
+                  Colors.white,
+                  const Color(0xFFF2F5FA),
+                  Color.lerp(_palette.base, Colors.white, 0.4)!,
+                ],
           const [0, 0.7, 1],
         ),
     );
@@ -566,182 +614,129 @@ class _HoloPainter extends CustomPainter {
     Map<Joint, _Projected> points,
     Map<Joint, Vec3> joints,
     _Projected Function(Vec3) project,
+    Vec3 Function(Vec3) view,
+    double unit,
   ) {
-    // Painter's algorithm: the furthest parts first.
-    final parts = <(double, void Function())>[];
-    for (final s in _segments) {
-      final a = points[s.a]!;
-      final b = points[s.b]!;
-      parts.add((
-        (a.depth + b.depth) / 2,
-        () => _capsule(canvas, a, b, s.ra, s.rb),
-      ));
-    }
-    final torsoDepth =
-        (points[Joint.leftShoulder]!.depth +
-            points[Joint.rightShoulder]!.depth +
-            points[Joint.leftHip]!.depth +
-            points[Joint.rightHip]!.depth) /
-        4;
-    parts.add((torsoDepth + 0.001, () => _torso(canvas, joints, project)));
-    final head = points[Joint.head]!;
-    parts.add((head.depth, () => _sphere(canvas, head, 0.116)));
-    for (final hand in [Joint.leftWrist, Joint.rightWrist]) {
-      final p = points[hand]!;
-      parts.add((p.depth + 0.01, () => _sphere(canvas, p, 0.036)));
-    }
-    parts.sort((x, y) => x.$1.compareTo(y.$1));
-
     // The aura first, under everything.
     final aura = Paint()
-      ..color = _palette.glow.withValues(alpha: 0.32)
+      ..color = _palette.glow.withValues(alpha: dark ? 0.42 : 0.3)
       ..strokeCap = StrokeCap.round
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9);
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, dark ? 14 : 9);
     for (final s in _segments) {
       final a = points[s.a]!;
       final b = points[s.b]!;
       aura.strokeWidth = (s.ra + s.rb) * a.scale + 10;
       canvas.drawLine(a.offset, b.offset, aura);
     }
+    final head = points[Joint.head]!;
     canvas.drawCircle(
       head.offset,
       0.116 * head.scale + 6,
       aura..style = PaintingStyle.fill,
     );
 
-    for (final part in parts) {
-      part.$2();
+    // The scan mesh is only worth drawing when the figure is large enough
+    // for its lines to be told apart.
+    final meshStrength = ((unit - 46) / 70).clamp(0.0, 1.0);
+    const around = BodyPart.around;
+    final drawn = <(double, ui.Vertices, Path)>[];
+    for (final part in buildBody(joints)) {
+      final count = part.positions.length;
+      final xy = Float32List(count * 2);
+      final colors = Int32List(count);
+      final facing = Float32List(count);
+      var depth = 0.0;
+      for (var i = 0; i < count; i++) {
+        final at = project(part.positions[i]);
+        xy[i * 2] = at.offset.dx;
+        xy[i * 2 + 1] = at.offset.dy;
+        depth += at.depth;
+        final normal = view(part.normals[i]);
+        facing[i] = normal.z;
+        colors[i] = _shade(normal).toARGB32();
+      }
+      final indices = <int>[];
+      final mesh = Path();
+      for (var ring = 0; ring < part.rings - 1; ring++) {
+        for (var k = 0; k < around; k++) {
+          final a = ring * around + k;
+          final b = ring * around + (k + 1) % around;
+          final c = a + around;
+          final d = b + around;
+          // The far side of each part is left out: it is hidden by the
+          // near side, or would only muddy a see-through body.
+          if (facing[a] + facing[b] + facing[c] + facing[d] <= 0) continue;
+          indices
+            ..add(a)
+            ..add(b)
+            ..add(c)
+            ..add(b)
+            ..add(d)
+            ..add(c);
+          if (meshStrength > 0) {
+            mesh
+              ..moveTo(xy[a * 2], xy[a * 2 + 1])
+              ..lineTo(xy[b * 2], xy[b * 2 + 1]);
+            if (k.isEven) {
+              mesh
+                ..moveTo(xy[a * 2], xy[a * 2 + 1])
+                ..lineTo(xy[c * 2], xy[c * 2 + 1]);
+            }
+          }
+        }
+      }
+      if (indices.isEmpty) continue;
+      drawn.add((
+        depth / count,
+        ui.Vertices.raw(
+          VertexMode.triangles,
+          xy,
+          colors: colors,
+          indices: Uint16List.fromList(indices),
+        ),
+        mesh,
+      ));
+    }
+    // Painter's algorithm: the furthest parts first.
+    drawn.sort((x, y) => x.$1.compareTo(y.$1));
+
+    final surface = Paint();
+    final wire = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = dark ? 0.7 : 0.55
+      ..color = (dark ? _palette.light : _palette.deep).withValues(
+        alpha: (dark ? 0.34 : 0.2) * meshStrength,
+      );
+    for (final (_, vertices, mesh) in drawn) {
+      // BlendMode.dst keeps the colour worked out for each point.
+      canvas.drawVertices(vertices, BlendMode.dst, surface);
+      if (meshStrength > 0) canvas.drawPath(mesh, wire);
     }
   }
 
-  /// The chest and waist: a shell from the shoulders to the hips, so the
-  /// figure reads as a body rather than a stick figure from the front.
-  void _torso(
-    Canvas canvas,
-    Map<Joint, Vec3> j,
-    _Projected Function(Vec3) project,
-  ) {
-    final shoulders =
-        (j[Joint.leftShoulder]! - j[Joint.rightShoulder]!).normalized;
-    final hips = (j[Joint.leftHip]! - j[Joint.rightHip]!).normalized;
-    final up = (j[Joint.chest]! - j[Joint.pelvis]!).normalized;
-    Offset at(Vec3 p) => project(p).offset;
-    final ls = at(j[Joint.leftShoulder]! + shoulders * 0.045 - up * 0.02);
-    final rs = at(j[Joint.rightShoulder]! - shoulders * 0.045 - up * 0.02);
-    final lh = at(j[Joint.leftHip]! + hips * 0.065);
-    final rh = at(j[Joint.rightHip]! - hips * 0.065);
-    final top = at(j[Joint.chest]! + up * 0.05);
-    final bottom = at(j[Joint.pelvis]! - up * 0.09);
-    final waist = Vec3.lerp(j[Joint.pelvis]!, j[Joint.chest]!, 0.45);
-    final lw = at(waist + Vec3.lerp(hips, shoulders, 0.5) * 0.13);
-    final rw = at(waist - Vec3.lerp(hips, shoulders, 0.5) * 0.13);
-    final path = Path()
-      ..moveTo(ls.dx, ls.dy)
-      ..quadraticBezierTo(top.dx, top.dy, rs.dx, rs.dy)
-      ..quadraticBezierTo(rw.dx, rw.dy, rh.dx, rh.dy)
-      ..quadraticBezierTo(bottom.dx, bottom.dy, lh.dx, lh.dy)
-      ..quadraticBezierTo(lw.dx, lw.dy, ls.dx, ls.dy)
-      ..close();
-    final bounds = path.getBounds();
-    canvas.drawPath(
-      path,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          bounds.centerLeft,
-          bounds.centerRight,
-          [
-            _palette.base,
-            _palette.light,
-            Colors.white,
-            _palette.base,
-            _palette.deep,
-          ],
-          const [0, 0.22, 0.4, 0.72, 1],
-        ),
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = _palette.glow.withValues(alpha: 0.5)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.8,
-    );
-  }
-
-  void _capsule(
-    Canvas canvas,
-    _Projected a,
-    _Projected b,
-    double ra,
-    double rb,
-  ) {
-    final pa = a.offset;
-    final pb = b.offset;
-    final rA = ra * a.scale;
-    final rB = rb * b.scale;
-    final d = pb - pa;
-    final length = d.distance;
-    final n = length < 0.001
-        ? const Offset(1, 0)
-        : Offset(-d.dy / length, d.dx / length);
-    final path = Path()
-      ..moveTo(pa.dx + n.dx * rA, pa.dy + n.dy * rA)
-      ..lineTo(pb.dx + n.dx * rB, pb.dy + n.dy * rB)
-      ..lineTo(pb.dx - n.dx * rB, pb.dy - n.dy * rB)
-      ..lineTo(pa.dx - n.dx * rA, pa.dy - n.dy * rA)
-      ..close()
-      ..addOval(Rect.fromCircle(center: pa, radius: rA))
-      ..addOval(Rect.fromCircle(center: pb, radius: rB));
-    path.fillType = PathFillType.nonZero;
-
-    // Cylindrical shading across the limb, lit from the upper left.
-    final mid = Offset.lerp(pa, pb, 0.5)!;
-    final r = math.max(rA, rB);
-    final lightSide = n.dx + n.dy < 0 ? n : -n;
-    final paint = Paint()
-      ..shader = ui.Gradient.linear(
-        mid - lightSide * r,
-        mid + lightSide * r,
-        [
-          _palette.deep,
-          _palette.base,
-          _palette.light,
-          Colors.white,
-          _palette.base,
-        ],
-        const [0, 0.32, 0.62, 0.78, 1],
-      );
-    canvas.drawPath(path, paint);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = _palette.glow.withValues(alpha: 0.55)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.8,
-    );
-  }
-
-  void _sphere(Canvas canvas, _Projected p, double radius) {
-    final r = radius * p.scale;
-    canvas.drawCircle(
-      p.offset,
-      r,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          p.offset + Offset(-r * 0.35, -r * 0.4),
-          r * 1.35,
-          [Colors.white, _palette.light, _palette.base, _palette.deep],
-          const [0, 0.25, 0.65, 1],
-        ),
-    );
-    canvas.drawCircle(
-      p.offset,
-      r,
-      Paint()
-        ..color = _palette.glow.withValues(alpha: 0.55)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.8,
-    );
+  /// The colour of the body where its surface faces [normal], as seen by the
+  /// viewer.
+  Color _shade(Vec3 normal) {
+    final edge = 1 - normal.z.abs().clamp(0.0, 1.0);
+    final lit = math.max(0.0, normal.dot(_light));
+    if (dark) {
+      // Light, not matter: faint where you look straight through it, bright
+      // where the surface turns away.
+      final rim = math.pow(edge, 1.5).toDouble();
+      final body = Color.lerp(_palette.deep, _palette.glow, 0.3 + 0.5 * lit)!;
+      return Color.lerp(
+        body,
+        _palette.light,
+        rim * 0.9,
+      )!.withValues(alpha: (0.26 + 0.22 * lit + 0.55 * rim).clamp(0.0, 1.0));
+    }
+    final rim = math.pow(edge, 2.2).toDouble();
+    final body = Color.lerp(
+      _palette.base,
+      Colors.white,
+      (0.12 + 0.88 * lit).clamp(0.0, 1.0),
+    )!;
+    return Color.lerp(body, _palette.deep, rim * 0.9)!.withValues(alpha: 0.97);
   }
 
   void _paintWireframe(
@@ -942,7 +937,8 @@ class _HoloPainter extends CustomPainter {
       old.clock != clock ||
       old.mark != mark ||
       old.pedestal != pedestal ||
-      old.guides != guides;
+      old.guides != guides ||
+      old.dark != dark;
 }
 
 /// A hologram on its own softly lit stage: a rounded panel with a gradient
@@ -998,7 +994,7 @@ class HoloStage extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            child,
+            HoloBackdrop(dark: dark, child: child),
             if (label != null)
               Positioned(left: 10, top: 10, right: 10, child: label!),
           ],

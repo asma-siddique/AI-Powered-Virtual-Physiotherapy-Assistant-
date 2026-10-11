@@ -39,6 +39,8 @@ def run(command: list[str]) -> int:
         os.environ["DATABASE_URL"] = devdb.start_embedded_postgres(data_dir, "physioai_throwaway")
         os.environ["JWT_SECRET"] = secrets.token_urlsafe(48)
         os.environ["ENVIRONMENT"] = "test"
+        # Often enough for the end-to-end test to see a reminder arrive.
+        os.environ["REMINDER_INTERVAL_SECONDS"] = "2"
 
         import uvicorn
 

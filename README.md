@@ -72,8 +72,16 @@ Session summary, history and review (user stories 4.2, 5.1 and 5.2):
 - **Progress** plots the form score of one exercise over 30 days, 3 months, 12 months or all time, with the same trend in a sentence. Only sessions that happened and have a score are plotted; a day without a session is simply absent.
 - **Flagged Sessions** for physiotherapists: a session goes into the queue the moment it has a RED repetition, or when it ends with a score below `FLAG_SCORE_BELOW` (60 unless set in `backend/.env`). The physiotherapist is notified, sees the patient, the reason and the full session, and marks it reviewed. Nothing else takes a session out of the queue, and a new RED after a review brings it back. A physiotherapist only ever sees sessions of patients assigned to them.
 
+Pain logging, notes and the progress report (user story 5.3):
+
+- **Pain is optional.** During the camera check and again on the summary, the patient can pick a number from 0 to 10, and after the session add a short note. Nothing about starting or ending a session depends on it. Not answering is stored as empty, never as 0, and tapping the chosen number again takes the answer back. A rating can be changed for 24 hours after the session started; after that it is part of the record.
+- **Notes.** The patient's note and the physiotherapist's own note on a session are shown with that session to both of them. The physiotherapist writes theirs from the session's detail in Flagged Sessions.
+- **Report export.** On the Patients page, **Report** downloads a PDF for the last 30 days, 3 months or 12 months: a summary, the form-score trend of each exercise with a graph, every session with its score, tier counts and pain ratings, and all notes. The server only produces it for a patient assigned to the physiotherapist asking; anyone else's is "not found". The PDF is written by `backend/app/pdf.py` with the standard library only, so there is nothing extra to install.
+- The audit trail records that pain was logged, a note was saved or a report was exported, but never the rating or the words.
+
 Limits to know about:
 
+- Report times are in UTC, because the server does not know the patient's time zone. Names written in a script outside Western European characters (for example Urdu) are replaced with "?" in the PDF, because it uses the PDF's built-in font. Report download works in the web app only.
 - The points per tier and the flag threshold of 60 are this project's starting values, not derived from REHAB24-6 or reviewed clinically. The score is a rule, not the trained model the user story asks for.
 - The 3-second (summary) and 300 ms (history) targets have not been measured. History is not paginated; a request returns at most 1000 sessions.
 - The live session has been tested with drawn body positions at known angles, in widget tests and against a real API and database. It has **not yet been tried in front of a real webcam**, so the counting angles (arm raised past 70 degrees, back below 30) and how often real tracking noise triggers feedback are unconfirmed.
@@ -86,11 +94,21 @@ In-app notifications:
 
 - A bell with an unread count for every role. Opening a notification marks it read and goes to the page it is about.
 - A patient is notified when a plan is assigned or a prescription in it is edited, and the plan on screen refreshes when that arrives. Patients and physiotherapists are told when a patient is reassigned. An account is notified when sign-in to it was paused or its password was changed.
-- The app checks for new notifications once a minute while it is open. Push notifications (Firebase Cloud Messaging) are not built yet.
+- The app checks for new notifications once a minute while it is open.
+
+Reminders and alerts (user stories 6.1 and 6.2):
+
+- **Prescribed days.** In the Plan Builder the physiotherapist chooses the days of the week a plan is for (every day unless changed). The patient sees them on My Exercise Plan.
+- **Session reminders.** On those days, at the time the patient chose (18:00 unless changed, or switched off), the server sends a reminder that links straight to the first exercise not yet done that day. A scheduler inside the API looks for due reminders every 30 seconds (`REMINDER_INTERVAL_SECONDS`; 0 turns it off). One reminder per plan per day, enforced in the database. Whether one is due is decided from the plan as it is at that moment, so a replaced plan, a deactivated account or a day already completed gets none.
+- **Whose evening.** The app tells the server how far the device's clock is from UTC, and again whenever that changes. Until it has, no reminder is sent.
+- **Alerts.** A physiotherapist is notified the moment a patient's session has a RED repetition or ends with a low score; the notice goes to whoever the patient is assigned to at that moment. A patient is notified when their plan is assigned or edited and when their physiotherapist writes a note on a session.
+- **Desktop alerts.** With permission (turned on from the notification list), anything new also appears as a notification from the browser while PhysioAI is open in a tab, and clicking it opens the page it is about.
+
+Limit: these are **not push notifications**. Nothing reaches a device while the app is closed; the reminder is waiting in the notification list the next time it is opened. Real push needs Firebase Cloud Messaging and a Firebase project's credentials, which are not set up.
 
 The severity thresholds that ship with the five exercises are provisional starting values. They have not yet been derived from the REHAB24-6 labels or reviewed clinically; see the note at the top of `backend/migrations/versions/0003_exercise_templates_and_plans.py`.
 
-Not built yet: repetition counting for the other exercises, the trained classifier and its monitoring (4.1 and 4.3), pain logging and report export (5.3), reminders (6.1), push notifications, chat and feedback, and the security hardening of epic 8.
+Not built yet: repetition counting for the other exercises, the trained classifier and its monitoring (4.1 and 4.3), push notifications, chat and feedback, and the security hardening of epic 8.
 
 ## Run it locally
 

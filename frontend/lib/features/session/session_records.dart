@@ -111,6 +111,9 @@ class SessionBrief {
     this.scoringVersion,
     this.flagReasons = const [],
     this.reviewedAt,
+    this.painBefore,
+    this.painAfter,
+    this.hasNotes = false,
   });
 
   factory SessionBrief.fromJson(Map<String, dynamic> json) => SessionBrief(
@@ -130,6 +133,9 @@ class SessionBrief {
         reason as String,
     ],
     reviewedAt: DateTime.tryParse(json['reviewed_at'] as String? ?? ''),
+    painBefore: json['pain_before'] as int?,
+    painAfter: json['pain_after'] as int?,
+    hasNotes: json['has_notes'] as bool? ?? false,
   );
 
   final String id;
@@ -152,6 +158,12 @@ class SessionBrief {
   /// red | low_score; empty when the session was not flagged.
   final List<String> flagReasons;
   final DateTime? reviewedAt;
+
+  /// Pain before and after, 0 to 10. Null when the patient chose not to
+  /// answer; never shown as 0.
+  final int? painBefore;
+  final int? painAfter;
+  final bool hasNotes;
 
   bool get isUnderWay => status == 'active' || status == 'paused';
 
@@ -214,8 +226,14 @@ class SessionDetail extends SessionBrief {
     super.scoringVersion,
     super.flagReasons,
     super.reviewedAt,
+    super.painBefore,
+    super.painAfter,
+    super.hasNotes,
     this.checks = const [],
     this.repetitions = const [],
+    this.patientNote,
+    this.clinicianNote,
+    this.clinicianNoteAt,
   });
 
   factory SessionDetail.fromJson(Map<String, dynamic> json) {
@@ -234,6 +252,14 @@ class SessionDetail extends SessionBrief {
       scoringVersion: brief.scoringVersion,
       flagReasons: brief.flagReasons,
       reviewedAt: brief.reviewedAt,
+      painBefore: brief.painBefore,
+      painAfter: brief.painAfter,
+      hasNotes: brief.hasNotes,
+      patientNote: json['patient_note'] as String?,
+      clinicianNote: json['clinician_note'] as String?,
+      clinicianNoteAt: DateTime.tryParse(
+        json['clinician_note_at'] as String? ?? '',
+      ),
       checks: [
         for (final check in json['checks'] as List<dynamic>? ?? const [])
           SessionCheck.fromJson(check as Map<String, dynamic>),
@@ -250,6 +276,13 @@ class SessionDetail extends SessionBrief {
 
   /// In the order performed.
   final List<RepetitionDetail> repetitions;
+
+  /// What the patient wrote after the session, if anything.
+  final String? patientNote;
+
+  /// The physiotherapist's own note on the session.
+  final String? clinicianNote;
+  final DateTime? clinicianNoteAt;
 }
 
 /// A session in a physiotherapist's flagged queue (US 5.2).

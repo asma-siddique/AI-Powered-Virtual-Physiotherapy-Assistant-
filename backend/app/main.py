@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -6,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
+from app import reminders
 from app.config import get_settings
 from app.db import get_engine
 from app.migrate import upgrade_to_head
@@ -22,6 +25,8 @@ from app.routers import (
     physio_sessions,
 )
 
+log = logging.getLogger("physioai")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -36,7 +41,22 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         upgrade_to_head()
     with get_engine().connect() as connection:
         connection.execute(text("SELECT 1"))
+    interval = settings.reminder_interval_seconds
+    scheduler = asyncio.create_task(_remind_every(interval)) if interval else None
     yield
+    if scheduler is not None:
+        scheduler.cancel()
+
+
+async def _remind_every(seconds: int) -> None:
+    """Sends session reminders as they fall due (US 6.1). A pass that fails is
+    logged and the next one still runs."""
+    while True:
+        await asyncio.sleep(seconds)
+        try:
+            await asyncio.to_thread(reminders.tick)
+        except Exception:
+            log.exception("The reminder pass failed")
 
 
 def create_app() -> FastAPI:

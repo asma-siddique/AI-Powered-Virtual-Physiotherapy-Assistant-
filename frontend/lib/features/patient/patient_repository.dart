@@ -5,6 +5,7 @@ import '../exercises/exercise_models.dart';
 import '../session/precheck.dart';
 import '../session/repetitions.dart';
 import '../session/session_records.dart';
+import 'reminders.dart';
 
 final patientRepositoryProvider = Provider<PatientRepository>(
   (ref) => PatientRepository(ref.watch(apiClientProvider)),
@@ -21,6 +22,16 @@ final precheckRequirementsProvider = FutureProvider.autoDispose
       (ref, itemId) =>
           ref.watch(patientRepositoryProvider).precheckRequirements(itemId),
     );
+
+/// When the signed-in patient is reminded of their exercises.
+final patientRemindersProvider = FutureProvider.autoDispose<ReminderSettings>(
+  (ref) => ref.watch(patientRepositoryProvider).reminders(),
+);
+
+/// How far this device's clock is ahead of UTC, in minutes.
+final deviceUtcOffsetProvider = Provider<int>(
+  (ref) => DateTime.now().timeZoneOffset.inMinutes,
+);
 
 /// Every session the signed-in patient has finished, most recent first.
 final patientSessionsProvider = FutureProvider.autoDispose<List<SessionBrief>>(
@@ -118,6 +129,44 @@ class PatientRepository {
       SessionDetail.fromJson(
         await _api.get('/patient/sessions/$id/detail') as Map<String, dynamic>,
       );
+
+  Future<ReminderSettings> reminders() async => ReminderSettings.fromJson(
+    await _api.get('/patient/reminders') as Map<String, dynamic>,
+  );
+
+  /// Changes only what is given: whether reminders are on, their time on the
+  /// patient's clock ("18:00"), or how far that clock is ahead of UTC.
+  Future<ReminderSettings> saveReminders({
+    bool? enabled,
+    String? time,
+    int? utcOffsetMinutes,
+  }) async => ReminderSettings.fromJson(
+    await _api.put(
+          '/patient/reminders',
+          body: {
+            'enabled': ?enabled,
+            'time': ?time,
+            'utc_offset_minutes': ?utcOffsetMinutes,
+          },
+        )
+        as Map<String, dynamic>,
+  );
+
+  /// Stores the optional pain rating before or after a session. A null
+  /// [score] takes an earlier answer back; a null [note] leaves the note as
+  /// it is.
+  Future<SessionDetail> logPain({
+    required String sessionId,
+    required String moment,
+    int? score,
+    String? note,
+  }) async => SessionDetail.fromJson(
+    await _api.put(
+          '/patient/sessions/$sessionId/pain',
+          body: {'moment': moment, 'score': score, 'note': ?note},
+        )
+        as Map<String, dynamic>,
+  );
 
   Future<ExerciseSession> endSession(String id) async =>
       ExerciseSession.fromJson(

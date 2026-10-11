@@ -28,6 +28,7 @@ PoseSource createPoseSource() => _WebPoseSource();
 class _WebPoseSource implements PoseSource {
   final _frames = StreamController<PoseFrame>.broadcast();
   double _aspect = 4 / 3;
+  bool _stopped = false;
 
   @override
   double get aspectRatio => _aspect;
@@ -57,6 +58,12 @@ class _WebPoseSource implements PoseSource {
       default:
         throw const CameraException(CameraProblem.failed);
     }
+    // Switched off while the camera was still starting (the screen was
+    // left): do not leave it running with nobody listening.
+    if (_stopped) {
+      bridge.stop();
+      return;
+    }
     final aspect = bridge.aspect().toDartDouble;
     if (aspect.isFinite && aspect > 0) _aspect = aspect;
     if (!_viewRegistered) {
@@ -78,6 +85,7 @@ class _WebPoseSource implements PoseSource {
 
   @override
   Future<void> stop() async {
+    _stopped = true;
     _bridge?.onFrame(null);
     _bridge?.stop();
     await _frames.close();

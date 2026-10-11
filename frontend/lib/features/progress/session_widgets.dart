@@ -449,6 +449,32 @@ class _SessionDetailDialogState extends State<_SessionDetailDialog> {
                 ),
                 const SizedBox(height: 12),
                 TierBreakdown(totals: session.totals),
+                if (session.painBefore != null ||
+                    session.painAfter != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Pain (0 to 10): ${_painText(session.painBefore)} before, '
+                    '${_painText(session.painAfter)} after.',
+                    key: const Key('detail-pain'),
+                    style: text.bodyMedium,
+                  ),
+                ],
+                if (session.patientNote != null) ...[
+                  const SizedBox(height: 12),
+                  _NoteBlock(
+                    key: const Key('detail-patient-note'),
+                    label: 'Note from the patient',
+                    note: session.patientNote!,
+                  ),
+                ],
+                if (session.clinicianNote != null) ...[
+                  const SizedBox(height: 12),
+                  _NoteBlock(
+                    key: const Key('detail-clinician-note'),
+                    label: 'Note from the physiotherapist',
+                    note: session.clinicianNote!,
+                  ),
+                ],
                 if (session.wasLeftOpen) ...[
                   const SizedBox(height: 12),
                   const InlineBanner(
@@ -764,4 +790,41 @@ class _TrendPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_TrendPainter old) => old.points != points;
+}
+
+/// A pain rating in words: a missing answer is said, never shown as 0.
+String _painText(int? score) => score == null ? 'not answered' : '$score';
+
+class _NoteBlock extends StatelessWidget {
+  const _NoteBlock({super.key, required this.label, required this.note});
+
+  final String label;
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: text.bodySmall?.copyWith(
+              color: AppColors.textMuted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(note, style: text.bodyMedium),
+        ],
+      ),
+    );
+  }
 }

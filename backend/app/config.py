@@ -39,6 +39,10 @@ class Settings(BaseSettings):
 
     invite_code_ttl_days: int = 7
 
+    # How often the API looks for session reminders that have fallen due.
+    # 0 switches the scheduler off (the tests drive it by hand).
+    reminder_interval_seconds: int = Field(default=30, ge=0, le=3600)
+
     # A session whose form score is below this is put in its physiotherapist's
     # flagged queue (US 5.2). A session with a RED repetition always is.
     flag_score_below: int = Field(default=60, ge=0, le=100)

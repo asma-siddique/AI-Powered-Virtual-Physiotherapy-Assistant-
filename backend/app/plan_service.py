@@ -59,6 +59,7 @@ def to_out(db: Session, plan: ExercisePlan) -> PlanOut:
         archived_at=plan.archived_at,
         is_active=plan.archived_at is None,
         assigned_by=PersonRef.model_validate(physio),
+        days=sorted(plan.frequency_days),
         items=[
             PlanItemOut(
                 id=item.id,
@@ -140,6 +141,7 @@ def assign(db: Session, physio: Account, patient: Account, body: PlanCreate, ip:
         physiotherapist_id=physio.id,
         name=body.name,
         created_at=now,
+        frequency_days=body.days,
     )
     db.add(plan)
     try:

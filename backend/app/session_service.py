@@ -5,7 +5,7 @@ prescription and thresholds it was started with."""
 
 import uuid
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import status
 from sqlalchemy import func, select
@@ -25,6 +25,7 @@ from app.models import (
     SessionRepetition,
 )
 from app.session_schemas import (
+    PainIn,
     PauseOut,
     PrecheckEvidence,
     PrecheckRequirements,
@@ -46,6 +47,8 @@ ENDED = (COMPLETED, ABANDONED)
 
 # Why a session is in the physiotherapist's flagged queue.
 FLAG_RED, FLAG_LOW_SCORE = "red", "low_score"
+# How long after a session starts its pain rating can still be changed.
+PAIN_WINDOW = timedelta(hours=24)
 # The most sessions one history request returns: far more than a year of
 # daily exercise.
 HISTORY_LIMIT = 1000
@@ -263,7 +266,39 @@ def brief(db: Session, session: ExerciseSession, template: ExerciseTemplate) -> 
         scoring_version=session.scoring_version,
         flag_reasons=session.flag_reasons or [],
         reviewed_at=session.reviewed_at,
+        pain_before=session.pain_before,
+        pain_after=session.pain_after,
+        has_notes=bool(session.patient_note or session.clinician_note),
     )
+
+
+def record_pain(
+    db: Session, patient: Account, session_id: uuid.UUID, sent: PainIn, ip: str | None
+) -> ExerciseSession:
+    """Stores an optional pain rating for one of the patient's own sessions
+    (US 5.3). It can be changed for a day after the session started, then it
+    is part of the record."""
+    session = own_session(db, patient, session_id, lock=True)
+    if clock.utcnow() - session.started_at > PAIN_WINDOW:
+        raise errors.conflict("pain_log_closed", "This session can no longer be changed.")
+    if sent.moment == "before":
+        session.pain_before = sent.score
+    else:
+        session.pain_after = sent.score
+    if sent.note is not None:
+        session.patient_note = sent.note.strip() or None
+    audit.record(
+        db,
+        "session.pain_logged",
+        actor_id=patient.id,
+        target_type="exercise_session",
+        target_id=session.id,
+        # The rating itself is health data and stays out of the audit trail.
+        detail={"moment": sent.moment, "answered": sent.score is not None},
+        ip=ip,
+    )
+    db.commit()
+    return session
 
 
 def _aware(moment: datetime | None) -> datetime | None:
@@ -310,6 +345,9 @@ def detail(db: Session, session: ExerciseSession) -> SessionDetail:
         rest_seconds=session.rest_seconds,
         checks=session.checks,
         scored_repetitions=session.scored_repetitions,
+        patient_note=session.patient_note,
+        clinician_note=session.clinician_note,
+        clinician_note_at=session.clinician_note_at,
         repetitions=[
             RepetitionDetail(
                 set_number=repetition.set_number,

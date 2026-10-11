@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/app_backdrop.dart';
 import '../../core/widgets/common.dart';
 import '../auth/auth_controller.dart';
 import '../auth/auth_models.dart';
@@ -136,7 +137,7 @@ class RoleShell extends ConsumerWidget {
           ),
         ),
         drawer: Drawer(child: SafeArea(child: sidebar)),
-        body: child,
+        body: AppBackdrop(child: child),
         bottomNavigationBar: role == UserRole.patient
             ? _PatientNavBar(location: location)
             : null,
@@ -144,67 +145,73 @@ class RoleShell extends ConsumerWidget {
     }
 
     return Scaffold(
-      body: Row(
-        children: [
-          SizedBox(width: 256, child: sidebar),
-          Expanded(
-            child: Column(
-              children: [
-                Container(
-                  height: 64,
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  decoration: BoxDecoration(
-                    color: clinical ? null : barColor,
-                    gradient: clinical ? AppColors.cardGradient : null,
-                    border: Border(
-                      bottom: BorderSide(
-                        color: clinical ? AppColors.navy : AppColors.divider,
+      body: AppBackdrop(
+        child: Row(
+          children: [
+            SizedBox(width: 256, child: sidebar),
+            Expanded(
+              child: Column(
+                children: [
+                  Container(
+                    height: 64,
+                    padding: const EdgeInsets.symmetric(horizontal: 40),
+                    decoration: BoxDecoration(
+                      // Frosted rather than solid, so the page's colour
+                      // carries on behind the bar.
+                      color: clinical ? null : barColor.withValues(alpha: 0.55),
+                      gradient: clinical ? AppColors.cardGradient : null,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: clinical ? AppColors.navy : AppColors.divider,
+                        ),
                       ),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        title,
-                        style: AppTheme.headingMedium.copyWith(color: onBar),
-                      ),
-                      const Spacer(),
-                      bell(),
-                      const SizedBox(width: 8),
-                      Tooltip(
-                        message: 'Account & security',
-                        child: InkWell(
-                          key: const Key('open-account'),
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () => context.go(securityPath),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 4,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _Avatar(account: account, role: role),
-                                const SizedBox(width: 10),
-                                Text(
-                                  account.fullName,
-                                  style: Theme.of(context).textTheme.labelLarge
-                                      ?.copyWith(color: onBar),
-                                ),
-                              ],
+                    child: Row(
+                      children: [
+                        Text(
+                          title,
+                          style: AppTheme.headingMedium.copyWith(color: onBar),
+                        ),
+                        const Spacer(),
+                        bell(),
+                        const SizedBox(width: 8),
+                        Tooltip(
+                          message: 'Account & security',
+                          child: InkWell(
+                            key: const Key('open-account'),
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => context.go(securityPath),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 4,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _Avatar(account: account, role: role),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    account.fullName,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelLarge
+                                        ?.copyWith(color: onBar),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                Expanded(child: child),
-              ],
+                  Expanded(child: child),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -272,9 +279,9 @@ class _Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(right: BorderSide(color: AppColors.divider)),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.6),
+        border: const Border(right: BorderSide(color: AppColors.divider)),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(

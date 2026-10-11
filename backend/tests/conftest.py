@@ -14,6 +14,8 @@ os.environ["ENVIRONMENT"] = "test"
 os.environ["JWT_SECRET"] = "test-secret-not-used-anywhere-else-0123456789"
 os.environ["ARGON2_TIME_COST"] = "1"
 os.environ["ARGON2_MEMORY_KIB"] = "64"
+# Reminders are sent by calling the scheduler's pass directly, at chosen times.
+os.environ["REMINDER_INTERVAL_SECONDS"] = "0"
 
 _embedded_dir: Path | None = None
 if os.environ.get("TEST_DATABASE_URL"):
