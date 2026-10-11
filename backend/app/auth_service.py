@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app import audit, clock, consent_service, notifications
+from app import audit, clock, consent_service, notifications, rls
 from app.config import get_settings
 from app.deps import session_problem
 from app.models import Account, AuthSession, LoginAttempt, PatientAssignment, Role
@@ -113,6 +113,9 @@ def revoke_sessions(db: Session, account_id: uuid.UUID, *, keep: uuid.UUID | Non
 
 
 def open_session(db: Session, account: Account, user_agent: str | None, ip: str | None) -> TokenPair:
+    # The account has just proved who it is: from here the database shows
+    # this request that person's rows and nobody else's (US 8.1).
+    rls.set_user(db, account)
     settings = get_settings()
     now = clock.utcnow()
     refresh_token, refresh_hash = new_refresh_token()

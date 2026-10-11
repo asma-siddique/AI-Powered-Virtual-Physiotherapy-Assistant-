@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app import audit, auth_service, clock, devices, errors, notifications
+from app import audit, auth_service, clock, devices, errors, notifications, rls
 from app.deps import CurrentAuth, DbSession, ReadyAuth, client_ip, session_problem
 from app.identifiers import normalize_identifier
 from app.models import Account, AuthSession, InviteCode, PatientAssignment, Role
@@ -80,7 +80,11 @@ def register(body: RegisterRequest, request: Request, db: DbSession) -> AuthResp
 
     invite.redeemed_at = now
     invite.redeemed_by = account.id
-    db.add(PatientAssignment(patient_id=account.id, physiotherapist_id=physio.id, assigned_at=now))
+    # Nobody is signed in yet, and a patient may never choose their own
+    # physiotherapist: the link is made by the system, from the invite code.
+    with rls.system(db):
+        db.add(PatientAssignment(patient_id=account.id, physiotherapist_id=physio.id, assigned_at=now))
+        db.flush()
     audit.record(
         db,
         "account.registered",

@@ -7,7 +7,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app import clock, consent_service, errors
+from app import clock, consent_service, errors, rls
 from app.config import get_settings
 from app.db import get_db
 from app.models import Account, AuthSession, Role
@@ -60,6 +60,8 @@ def get_auth_context(
     account = db.get(Account, session.account_id)
     if account is None or not account.is_active:
         raise errors.unauthenticated("session_revoked")
+    # From here on the database itself only shows this person's rows (US 8.1).
+    rls.set_user(db, account)
 
     now = clock.utcnow()
     if now - session.last_seen_at > timedelta(seconds=60):

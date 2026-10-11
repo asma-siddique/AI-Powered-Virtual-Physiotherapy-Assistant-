@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import clock, notifications
+from app import clock, notifications, rls
 from app.db import get_engine
 from app.models import (
     Account,
@@ -185,7 +185,8 @@ def _send(db: Session, plan: ExercisePlan, local_date: date, day_start: datetime
 
 def tick() -> None:
     """One pass of the scheduler, on its own database session."""
-    with Session(get_engine(), expire_on_commit=False) as db:
+    # Nobody is signed in here: the scheduler works for every patient.
+    with rls.as_system(Session(get_engine(), expire_on_commit=False)) as db:
         count = send_due(db, clock.utcnow())
         if count:
             log.info("Sent %d session reminder%s", count, "" if count == 1 else "s")

@@ -109,9 +109,19 @@ Reminders and alerts (user stories 6.1 and 6.2):
 
 Limit: these are **not push notifications**. Nothing reaches a device while the app is closed; the reminder is waiting in the notification list the next time it is opened. Real push needs Firebase Cloud Messaging and a Firebase project's credentials, which are not set up.
 
+Row-level data isolation (user story 8.1):
+
+- **A second lock, in the database.** Every endpoint already checks who is asking. On top of that, PostgreSQL row-level security policies (migration 0012) apply to every statement the API runs: a patient's plans, sessions, repetitions, prescription history, consent, reminder settings and notifications can be read or changed only by that patient and, for the clinical tables, by the physiotherapist they are assigned to now. If an endpoint's own check were ever wrong or missing, the query would still come back empty.
+- **How.** Each transaction runs as the role `physioai_app`, which has no way round the policies, and carries who is asking in two settings (`backend/app/rls.py`). A request starts as nobody and becomes somebody only once its token has been checked. The identity lasts for one transaction, so it cannot leak to the next request on the same connection.
+- **Who sees what.** A patient: their own rows. A physiotherapist: the clinical rows of patients assigned to them now, so reassignment moves access in the database too. An admin: who is assigned to whom and the consent records they can retrieve for audit, but no plans, sessions or repetitions. Nobody signed in: nothing.
+- **The system's own work** (the reminder scheduler, linking a newly registered patient, seeding) steps up on purpose, in `rls.system(...)`; those are the only places.
+- **Guard.** A test lists every table as either protected or exempt with a reason, and fails when a new table is on neither list. `tests/test_rls.py` goes round the API and tries to read, change and insert another patient's rows directly.
+
+Tables without a policy, on purpose: `accounts`, `auth_sessions`, `login_attempts` and `invite_codes` (needed to work out who is asking in the first place), `exercise_templates` (the same for everyone) and `audit_log`. A name or email in `accounts` is therefore protected by the endpoints' checks only.
+
 The severity thresholds that ship with the five exercises are provisional starting values. They have not yet been derived from the REHAB24-6 labels or reviewed clinically; see the note at the top of `backend/migrations/versions/0003_exercise_templates_and_plans.py`.
 
-Not built yet: repetition counting for the other exercises, the trained classifier and its monitoring (4.1 and 4.3), push notifications, chat and feedback, and the security hardening of epic 8.
+Not built yet: repetition counting for the other exercises, the trained classifier and its monitoring (4.1 and 4.3), push notifications, chat and feedback, and the rest of epic 8 (data retention in 8.2, an append-only audit log in 8.3).
 
 ## Run it locally
 

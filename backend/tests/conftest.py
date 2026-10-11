@@ -36,7 +36,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
-from app import clock  # noqa: E402
+from app import clock, rls  # noqa: E402
 from app.db import Base, get_engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
@@ -87,7 +87,9 @@ def _clean_tables() -> None:
 
 @pytest.fixture
 def db() -> Iterator[Session]:
-    with Session(get_engine(), expire_on_commit=False) as session:
+    # The tests' own view of the database is the system's: they set things
+    # up and look at what was stored, for every patient at once.
+    with rls.as_system(Session(get_engine(), expire_on_commit=False)) as session:
         yield session
 
 
