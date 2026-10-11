@@ -25,10 +25,12 @@ class ExerciseBrief {
     required this.targetJoints,
     required this.instructions,
     this.isActive = true,
+    this.slug = '',
   });
 
   factory ExerciseBrief.fromJson(Map<String, dynamic> json) => ExerciseBrief(
     id: json['id'] as String,
+    slug: json['slug'] as String? ?? '',
     name: json['name'] as String,
     domain: json['domain'] as String,
     bodyArea: json['body_area'] as String,
@@ -42,6 +44,10 @@ class ExerciseBrief {
   );
 
   final String id;
+
+  /// The exercise's fixed short name ("arm-abduction"), which the app uses to
+  /// find how its repetitions are counted. Empty when the server did not say.
+  final String slug;
   final String name;
   final String domain;
   final String bodyArea;
@@ -115,7 +121,10 @@ class ExercisePlan {
     required this.items,
     this.archivedAt,
     this.hasInactiveExercise = false,
+    this.days = everyDay,
   });
+
+  static const everyDay = [0, 1, 2, 3, 4, 5, 6];
 
   factory ExercisePlan.fromJson(Map<String, dynamic> json) => ExercisePlan(
     id: json['id'] as String,
@@ -129,6 +138,9 @@ class ExercisePlan {
         PlanItem.fromJson(item as Map<String, dynamic>),
     ],
     hasInactiveExercise: json['has_inactive_exercise'] as bool? ?? false,
+    days: [
+      for (final day in json['days'] as List<dynamic>? ?? everyDay) day as int,
+    ],
   );
 
   final String id;
@@ -139,6 +151,10 @@ class ExercisePlan {
   final PersonRef assignedBy;
   final List<PlanItem> items;
   final bool hasInactiveExercise;
+
+  /// The prescribed frequency: the days of the week to exercise on, Monday 0
+  /// to Sunday 6.
+  final List<int> days;
 
   List<String> get inactiveExerciseNames => [
     for (final item in items)

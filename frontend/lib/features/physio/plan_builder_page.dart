@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/widgets/common.dart';
 import '../exercises/exercise_models.dart';
 import '../shell/page_widgets.dart';
+import '../patient/reminders.dart' show dayName;
 import 'physio_repository.dart';
 import 'prescription_dialogs.dart';
 
@@ -25,6 +26,9 @@ class _PlanBuilderPageState extends ConsumerState<PlanBuilderPage> {
   static const _defaultName = 'Exercise plan';
 
   final _name = TextEditingController(text: _defaultName);
+
+  /// The prescribed frequency: every day until the physiotherapist chooses.
+  final _days = <int>{...ExercisePlan.everyDay};
   final _items = <PlanItemDraft>[];
   late String? _patientId = widget.initialPatientId;
   bool _busy = false;
@@ -59,13 +63,21 @@ class _PlanBuilderPageState extends ConsumerState<PlanBuilderPage> {
     try {
       await ref
           .read(physioRepositoryProvider)
-          .assignPlan(patientId: patient.id, name: name, items: _items);
+          .assignPlan(
+            patientId: patient.id,
+            name: name,
+            items: _items,
+            days: _days.toList()..sort(),
+          );
       ref.invalidate(patientPlansProvider(patient.id));
       if (!mounted) return;
       setState(() {
         // Start the next plan from a clean form.
         _items.clear();
         _name.text = _defaultName;
+        _days
+          ..clear()
+          ..addAll(ExercisePlan.everyDay);
         _success =
             'Plan assigned to ${patient.fullName}. Their previous plan, if any, was archived.';
       });
@@ -156,6 +168,33 @@ class _PlanBuilderPageState extends ConsumerState<PlanBuilderPage> {
               controller: _name,
               enabled: !_busy,
               textCapitalization: TextCapitalization.sentences,
+            ),
+          ),
+          const SizedBox(height: 12),
+          LabeledField(
+            label: 'Days each week',
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final day in ExercisePlan.everyDay)
+                  FilterChip(
+                    key: Key('plan-day-$day'),
+                    label: Text(dayName(day)),
+                    selected: _days.contains(day),
+                    showCheckmark: false,
+                    // A plan needs at least one day, so the last one stays.
+                    onSelected: _busy
+                        ? null
+                        : (on) => _edit(() {
+                            if (on) {
+                              _days.add(day);
+                            } else if (_days.length > 1) {
+                              _days.remove(day);
+                            }
+                          }),
+                  ),
+              ],
             ),
           ),
         ],
@@ -391,13 +430,13 @@ class _DraftCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 13,
-                backgroundColor: AppColors.primaryTint,
+                backgroundColor: AppColors.navy,
                 child: Text(
                   '${index + 1}',
                   style: const TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
               ),

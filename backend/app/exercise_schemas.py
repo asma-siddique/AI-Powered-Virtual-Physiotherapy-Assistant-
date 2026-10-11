@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app import pose
 from app.models import Difficulty
 from app.schemas import PersonRef
 
@@ -38,9 +39,14 @@ def _unique_check_keys(checks: list[SeverityCheck]) -> list[SeverityCheck]:
 
 
 def _clean_joints(joints: list[str]) -> list[str]:
-    cleaned = [joint.strip().lower() for joint in joints if joint.strip()]
+    cleaned = list(dict.fromkeys(joint.strip().lower() for joint in joints if joint.strip()))
     if not cleaned:
         raise ValueError("Name at least one target joint.")
+    # The camera check looks for exactly these joints, so a name the pose model
+    # does not have would quietly never be checked.
+    unknown = [joint for joint in cleaned if joint not in pose.KNOWN_JOINTS]
+    if unknown:
+        raise ValueError(f"Choose target joints from: {', '.join(pose.KNOWN_JOINTS)}.")
     return cleaned
 
 
@@ -114,6 +120,7 @@ class ExerciseBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    slug: str
     name: str
     domain: str
     body_area: str
@@ -140,6 +147,16 @@ class PlanItemIn(BaseModel):
 class PlanCreate(BaseModel):
     name: str = Field(default="Exercise plan", min_length=2, max_length=80)
     items: list[PlanItemIn] = Field(min_length=1, max_length=12)
+    # The prescribed frequency: which days of the week, Monday 0 to Sunday 6.
+    # Every day unless the physiotherapist says otherwise.
+    days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6], min_length=1, max_length=7)
+
+    @field_validator("days")
+    @classmethod
+    def _real_days_once(cls, days: list[int]) -> list[int]:
+        if any(day < 0 or day > 6 for day in days) or len(set(days)) != len(days):
+            raise ValueError("Choose each day of the week at most once.")
+        return sorted(days)
 
     @field_validator("name")
     @classmethod
@@ -218,6 +235,8 @@ class PlanOut(BaseModel):
     archived_at: datetime | None
     is_active: bool
     assigned_by: PersonRef
+    # Days of the week to exercise on, Monday 0 to Sunday 6.
+    days: list[int]
     items: list[PlanItemOut]
     # True when an exercise in this plan has since been deactivated by an admin.
     has_inactive_exercise: bool

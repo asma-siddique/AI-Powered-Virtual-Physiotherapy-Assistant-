@@ -5,9 +5,12 @@ import '../theme/app_theme.dart';
 
 /// The PhysioAI mark and wordmark, identical everywhere it appears.
 class PhysioAiLogo extends StatelessWidget {
-  const PhysioAiLogo({super.key, this.size = 32});
+  const PhysioAiLogo({super.key, this.size = 32, this.onDark = false});
 
   final double size;
+
+  /// White wordmark, for dark backgrounds.
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) {
@@ -18,11 +21,18 @@ class PhysioAiLogo extends StatelessWidget {
           width: size,
           height: size,
           decoration: BoxDecoration(
-            color: AppColors.primary,
-            borderRadius: BorderRadius.circular(8),
+            gradient: AppColors.cardGradient,
+            borderRadius: BorderRadius.circular(size * 0.3),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primaryMint.withValues(alpha: 0.35),
+                blurRadius: size * 0.4,
+                offset: Offset(0, size * 0.1),
+              ),
+            ],
           ),
           child: Icon(
-            Icons.monitor_heart_outlined,
+            Icons.accessibility_new_rounded,
             color: Colors.white,
             size: size * 0.62,
           ),
@@ -33,7 +43,7 @@ class PhysioAiLogo extends StatelessWidget {
           style: TextStyle(
             fontSize: size * 0.62,
             fontWeight: FontWeight.w700,
-            color: AppColors.text,
+            color: onDark ? Colors.white : AppColors.text,
             letterSpacing: -0.3,
           ),
         ),
@@ -43,29 +53,40 @@ class PhysioAiLogo extends StatelessWidget {
 }
 
 /// White card on the canvas: 16px radius, hairline border, soft shadow.
+/// An [accent] adds a 4px coloured border on the left.
 class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(24),
     this.color,
+    this.accent,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color? color;
+  final Color? accent;
 
   @override
   Widget build(BuildContext context) {
+    final body = Padding(padding: padding, child: child);
     return Container(
       decoration: BoxDecoration(
         color: color ?? AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
         border: Border.all(color: AppColors.divider),
         boxShadow: cardShadow,
       ),
-      padding: padding,
-      child: child,
+      clipBehavior: accent == null ? Clip.none : Clip.antiAlias,
+      child: accent == null
+          ? body
+          : DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(left: BorderSide(color: accent!, width: 4)),
+              ),
+              child: body,
+            ),
     );
   }
 }
@@ -156,8 +177,8 @@ class InlineBanner extends StatelessWidget {
         Icons.lock_clock_outlined,
       ),
       BannerTone.info => (
-        AppColors.primaryDark,
-        AppColors.primaryTint,
+        AppColors.info,
+        AppColors.infoTint,
         Icons.info_outline_rounded,
       ),
       BannerTone.success => (
@@ -173,7 +194,8 @@ class InlineBanner extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: background,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+          border: Border.all(color: foreground.withValues(alpha: 0.14)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -308,24 +330,46 @@ class BusyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
-      onPressed: busy ? null : onPressed,
-      child: busy
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
-            )
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, size: 18),
-                  const SizedBox(width: 8),
+    final enabled = onPressed != null && !busy;
+    // The gradient sits behind a transparent FilledButton, so the button
+    // keeps all of its own behaviour.
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      decoration: BoxDecoration(
+        gradient: enabled || busy ? AppColors.heroGradient : null,
+        color: enabled || busy ? null : AppColors.disabled,
+        borderRadius: BorderRadius.circular(100),
+        boxShadow: enabled ? AppTheme.elevatedShadow : null,
+      ),
+      child: FilledButton(
+        onPressed: busy ? null : onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          disabledBackgroundColor: Colors.transparent,
+          disabledForegroundColor: Colors.white,
+          foregroundColor: Colors.white,
+          shadowColor: Colors.transparent,
+        ),
+        child: busy
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Colors.white,
+                ),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 18),
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
                 ],
-                Text(label),
-              ],
-            ),
+              ),
+      ),
     );
   }
 }
@@ -337,11 +381,19 @@ class EmptyState extends StatelessWidget {
     required this.icon,
     required this.message,
     this.action,
+    this.title,
+    this.illustration,
   });
 
   final IconData icon;
   final String message;
   final Widget? action;
+
+  /// A heading above the message, such as "All caught up!".
+  final String? title;
+
+  /// Drawn instead of the icon.
+  final Widget? illustration;
 
   @override
   Widget build(BuildContext context) {
@@ -350,16 +402,33 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: const BoxDecoration(
-              color: AppColors.primaryTint,
-              shape: BoxShape.circle,
+          if (illustration != null)
+            illustration!
+          else
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppColors.primaryTint, Color(0xFFD5EEF3)],
+                ),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 3),
+                boxShadow: AppTheme.glowShadow,
+              ),
+              child: Icon(icon, color: AppColors.primary, size: 30),
             ),
-            child: Icon(icon, color: AppColors.primary, size: 28),
-          ),
           const SizedBox(height: 12),
+          if (title != null) ...[
+            Text(
+              title!,
+              textAlign: TextAlign.center,
+              style: AppTheme.headingLarge,
+            ),
+            const SizedBox(height: 6),
+          ],
           Text(
             message,
             textAlign: TextAlign.center,

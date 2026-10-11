@@ -9,6 +9,7 @@ import '../../core/widgets/common.dart';
 import '../auth/auth_controller.dart';
 import '../shell/page_widgets.dart';
 import 'physio_repository.dart';
+import 'report_dialog.dart';
 
 class PhysioDashboardPage extends ConsumerWidget {
   const PhysioDashboardPage({super.key});
@@ -38,12 +39,13 @@ class PhysioDashboardPage extends ConsumerWidget {
               icon: Icons.groups_outlined,
               value: patientCount?.toString() ?? '-',
               label: 'Active patients',
+              accent: AppColors.navy,
             ),
             StatCard(
               icon: Icons.key_outlined,
               value: activeCodes?.toString() ?? '-',
               label: 'Unused invite codes',
-              accent: AppColors.tealDark,
+              accent: AppColors.primary,
             ),
           ],
         ),
@@ -243,9 +245,12 @@ class _InviteRow extends StatelessWidget {
 }
 
 class _PatientRow extends StatelessWidget {
-  const _PatientRow({required this.patient, this.onPlan});
+  const _PatientRow({required this.patient, this.onPlan, this.onReport});
 
   final PatientSummary patient;
+
+  /// Opens the report export for this patient; shown as a button when set.
+  final VoidCallback? onReport;
 
   /// Opens the plan builder for this patient; the row shows a button when set.
   final VoidCallback? onPlan;
@@ -261,16 +266,14 @@ class _PatientRow extends StatelessWidget {
         builder: (context, constraints) => Row(
           children: [
             CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.tealTint,
+              radius: 20,
+              backgroundColor: AppColors.navy,
               child: Text(
-                patient.fullName.isEmpty
-                    ? '?'
-                    : patient.fullName[0].toUpperCase(),
+                _initials(patient.fullName),
                 style: const TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.tealDark,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -323,6 +326,12 @@ class _PatientRow extends StatelessWidget {
                 child: const Text('Plan'),
               ),
             ],
+            if (onReport != null)
+              TextButton(
+                key: Key('report-for-${patient.id}'),
+                onPressed: onReport,
+                child: const Text('Report'),
+              ),
           ],
         ),
       ),
@@ -362,10 +371,21 @@ class PhysioPatientsPage extends ConsumerWidget {
                   patient: patient,
                   onPlan: () =>
                       context.go('/physio/plan-builder?patient=${patient.id}'),
+                  onReport: () => showDialog<void>(
+                    context: context,
+                    builder: (context) => ReportDialog(patient: patient),
+                  ),
                 ),
           ],
         ),
       ),
     );
   }
+}
+
+/// "MJ" for Marcus Johnson; "?" when there is no name.
+String _initials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+  if (parts.isEmpty) return '?';
+  return parts.take(2).map((p) => p[0].toUpperCase()).join();
 }

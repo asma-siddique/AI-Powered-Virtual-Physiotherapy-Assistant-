@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/common.dart';
+import '../../core/widgets/hologram/holo_figure.dart';
 import '../shell/page_widgets.dart';
 import 'exercise_library_repository.dart';
 
@@ -136,6 +137,21 @@ class _ExerciseRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Row(
         children: [
+          SizedBox(
+            width: 64,
+            height: 74,
+            child: HoloStage(
+              radius: 14,
+              child: HoloFigure(
+                exercise: HoloExercise.fromName(exercise.name),
+                animate: false,
+                guides: false,
+                pedestal: false,
+                tone: exercise.isActive ? HoloTone.correct : HoloTone.neutral,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

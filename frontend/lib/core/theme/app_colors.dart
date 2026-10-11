@@ -1,31 +1,108 @@
 import 'package:flutter/material.dart';
 
-/// "Clinical Precision" palette from the PhysioAI design system.
+/// "Clinical Precision" palette from the PhysioAI design system: a deep
+/// clinical teal for the patient's side, navy for authority and the
+/// physiotherapist's portal, and a fixed set of severity colours.
+///
+/// The older names (teal, purple, success...) are kept as aliases so every
+/// screen picks up the new palette without changing what it asks for.
 abstract final class AppColors {
-  static const primary = Color(0xFF0052CC);
-  static const primaryDark = Color(0xFF003D9B);
-  static const primaryTint = Color(0xFFE9F2FF);
+  // Primary
+  static const primary = Color(0xFF006A6A); // Deep clinical teal
+  static const primaryDark = Color(0xFF004D4D); // Pressed state
+  static const primaryTint = Color(0xFFE0F2F1); // Tint backgrounds
+  static const primaryMint = Color(0xFF00BFA5); // Accent, AI dots
 
-  static const teal = Color(0xFF00A3BF);
-  static const tealDark = Color(0xFF00687A);
-  static const tealTint = Color(0xFFE6F8FB);
+  // Secondary
+  static const navy = Color(0xFF1A3C5E); // Headers, authority
+  static const navyLight = Color(0xFF2A5278); // Secondary text on dark
+  static const navyDeep = Color(0xFF0D1F2D); // Immersive backgrounds
+  static const navyTint = Color(0xFFE6EDF4);
 
-  static const purple = Color(0xFF6554C0);
-  static const purpleDark = Color(0xFF432F9C);
-  static const purpleTint = Color(0xFFF3F0FF);
+  // The administrator's own accent, so each portal reads differently.
+  static const admin = Color(0xFF4A3F8C);
+  static const adminTint = Color(0xFFEFEDF9);
 
-  static const text = Color(0xFF172B4D);
-  static const textMuted = Color(0xFF5E6C84);
+  // Severity: these never change.
+  static const severityRed = Color(0xFFC62828);
+  static const severityRedBg = Color(0xFFFFEBEE);
+  static const severityAmber = Color(0xFFE65100);
+  static const severityAmberBg = Color(0xFFFFF3E0);
+  static const severityInfo = Color(0xFF1565C0);
+  static const severityInfoBg = Color(0xFFE3F2FD);
+  static const severityGreen = Color(0xFF2E7D32);
+  static const severityGreenBg = Color(0xFFE8F5E9);
 
-  static const background = Color(0xFFF7F9FC);
+  // Neutrals
+  static const background = Color(0xFFF4F7F9);
   static const surface = Color(0xFFFFFFFF);
-  static const border = Color(0xFFDFE1E6);
-  static const divider = Color(0xFFEBECF0);
+  static const surfaceAlt = Color(0xFFF0F4F8);
+  static const border = Color(0xFFDDE3EA);
+  static const divider = Color(0xFFE8EDF2);
+  static const text = Color(0xFF0D1F2D);
+  static const textMuted = Color(0xFF546E7A);
+  static const textHint = Color(0xFF90A4AE);
+  static const disabled = Color(0xFFB0BEC5);
 
-  static const success = Color(0xFF1F845A);
-  static const successTint = Color(0xFFDCFFF1);
-  static const warning = Color(0xFFB65C02);
-  static const warningTint = Color(0xFFFFF7D6);
-  static const error = Color(0xFFBA1A1A);
-  static const errorTint = Color(0xFFFFDAD6);
+  // Warm accents, from the same family as the teal: used sparingly, for
+  // numbers and highlights that should feel human rather than clinical.
+  static const aqua = Color(0xFF83C5BE);
+  static const ice = Color(0xFFEDF6F9);
+  static const sand = Color(0xFFE2C4AE);
+  static const clay = Color(0xFFA8674F);
+
+  // The night the holograms stand in.
+  static const night = Color(0xFF05111A);
+  static const nightTeal = Color(0xFF0A2A33);
+
+  // Aliases used across the app.
+  static const teal = primaryMint;
+  static const tealDark = primary;
+  static const tealTint = primaryTint;
+
+  static const purple = navy;
+  static const purpleDark = navyDeep;
+  static const purpleTint = navyTint;
+
+  static const success = severityGreen;
+  static const successTint = severityGreenBg;
+  static const warning = severityAmber;
+  static const warningTint = severityAmberBg;
+  static const error = severityRed;
+  static const errorTint = severityRedBg;
+  static const info = severityInfo;
+  static const infoTint = severityInfoBg;
+
+  // Gradients
+  static const heroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF006A6A), Color(0xFF004D4D)],
+  );
+  static const cardGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF1A3C5E), Color(0xFF006A6A)],
+  );
+
+  /// Soft lavender-to-mint wash behind hologram scenes.
+  static const holoGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFEAF0FB), Color(0xFFE3F4F3), Color(0xFFF1ECFA)],
+  );
+
+  /// Behind the holograms on the first page and beside the sign-in forms.
+  static const immersiveGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF05111A), Color(0xFF082029), Color(0xFF0B3138)],
+  );
+
+  /// The immersive session background.
+  static const sessionGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFF0B1A27), Color(0xFF0D1F2D), Color(0xFF102A3A)],
+  );
 }

@@ -20,6 +20,14 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   return client;
 });
 
+/// A file fetched from the API.
+class DownloadedFile {
+  const DownloadedFile({required this.bytes, required this.filename});
+
+  final Uint8List bytes;
+  final String filename;
+}
+
 class ApiClient {
   ApiClient({
     required this.baseUrl,
@@ -46,6 +54,22 @@ class ApiClient {
   Future<dynamic> patch(String path, {Object? body}) =>
       _send('PATCH', path, body: body);
 
+  Future<dynamic> put(String path, {Object? body}) =>
+      _send('PUT', path, body: body);
+
+  /// Fetches a file rather than JSON: its bytes, and the name the server
+  /// gave it.
+  Future<DownloadedFile> download(String path) async {
+    final response = await _send('GET', path, raw: true) as http.Response;
+    final named = RegExp(
+      r'filename="([^"]+)"',
+    ).firstMatch(response.headers['content-disposition'] ?? '');
+    return DownloadedFile(
+      bytes: response.bodyBytes,
+      filename: named?.group(1) ?? 'download',
+    );
+  }
+
   Future<dynamic> delete(String path) => _send('DELETE', path);
 
   void close() => _http.close();
@@ -56,9 +80,10 @@ class ApiClient {
     Object? body,
     bool auth = true,
     bool retried = false,
+    bool raw = false,
   }) async {
     final request = http.Request(method, Uri.parse('$baseUrl$path'))
-      ..headers['Accept'] = 'application/json';
+      ..headers['Accept'] = raw ? '*/*' : 'application/json';
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
@@ -81,6 +106,7 @@ class ApiClient {
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (raw) return response;
       return response.bodyBytes.isEmpty
           ? null
           : jsonDecode(utf8.decode(response.bodyBytes));
@@ -89,7 +115,14 @@ class ApiClient {
     final error = ApiException.fromResponse(response);
     if (auth && response.statusCode == 401) {
       if (!retried && error.code == 'token_expired' && await _refresh()) {
-        return _send(method, path, body: body, auth: auth, retried: true);
+        return _send(
+          method,
+          path,
+          body: body,
+          auth: auth,
+          retried: true,
+          raw: raw,
+        );
       }
       await tokens.clear();
       onSessionEnded?.call(error);

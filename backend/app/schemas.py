@@ -193,3 +193,22 @@ class NotificationOut(BaseModel):
 class NotificationList(BaseModel):
     unread_count: int
     items: list[NotificationOut]
+
+
+class ReminderOut(BaseModel):
+    """When a patient is reminded that their exercises are due (US 6.1)."""
+
+    enabled: bool
+    # On the patient's own clock, "18:00".
+    time: str
+    # How far the patient's clock is ahead of UTC; None until their app has
+    # reported it, and until then no reminder can be sent.
+    utc_offset_minutes: int | None
+    # The days their plan prescribes, Monday 0 to Sunday 6; empty without a plan.
+    days: list[int]
+
+
+class ReminderIn(BaseModel):
+    enabled: bool | None = None
+    time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    utc_offset_minutes: int | None = Field(default=None, ge=-720, le=840)

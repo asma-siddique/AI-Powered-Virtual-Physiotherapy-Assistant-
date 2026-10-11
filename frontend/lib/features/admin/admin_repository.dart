@@ -62,6 +62,8 @@ class AuditEntry {
     'plan.assigned' => 'A physiotherapist assigned an exercise plan',
     'plan.prescription_edited' =>
       "A physiotherapist edited a patient's prescription",
+    'session.started' => 'A patient started an exercise session',
+    'session.ended' => 'A patient finished an exercise session',
     'exercise_template.created' => 'An admin added an exercise',
     'exercise_template.updated' =>
       "An admin edited an exercise's profile or thresholds",

@@ -18,7 +18,10 @@ import 'features/consent/advisory_screen.dart';
 import 'features/consent/help_page.dart';
 import 'features/patient/exercise_plan_page.dart';
 import 'features/patient/patient_home_page.dart';
+import 'features/physio/flagged_sessions_page.dart';
 import 'features/physio/plan_builder_page.dart';
+import 'features/progress/progress_pages.dart';
+import 'features/session/session_screen.dart';
 import 'features/physio/physio_pages.dart';
 import 'features/shell/page_widgets.dart';
 import 'features/shell/role_shell.dart';
@@ -128,19 +131,17 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: advisoryPath,
         builder: (context, state) => const AdvisoryScreen(),
       ),
+      // Full screen: during a session nothing else competes for attention.
+      GoRoute(
+        path: '/patient/session/:itemId',
+        builder: (context, state) =>
+            SessionScreen(itemId: state.pathParameters['itemId']!),
+      ),
       area(UserRole.patient, [
         page('/patient', const PatientHomePage()),
         page('/patient/plan', const ExercisePlanPage()),
-        soon(
-          '/patient/history',
-          'Session History',
-          'Your completed sessions will be listed here.',
-        ),
-        soon(
-          '/patient/progress',
-          'Progress',
-          'Your form-score trend will be shown here.',
-        ),
+        page('/patient/history', const SessionHistoryPage()),
+        page('/patient/progress', const ProgressPage()),
         soon(
           '/patient/chat',
           'Chat',
@@ -167,11 +168,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             ),
           ),
         ),
-        soon(
-          '/physio/flagged',
-          'Flagged Sessions',
-          'Sessions that need your review will appear here.',
-        ),
+        page('/physio/flagged', const FlaggedSessionsPage()),
         soon(
           '/physio/chat',
           'Chat',

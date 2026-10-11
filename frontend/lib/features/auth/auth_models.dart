@@ -18,15 +18,15 @@ enum UserRole {
 
   /// Each role keeps one accent colour everywhere it is named.
   Color get accent => switch (this) {
-    UserRole.patient => AppColors.tealDark,
-    UserRole.physiotherapist => AppColors.primary,
-    UserRole.admin => AppColors.purple,
+    UserRole.patient => AppColors.primary,
+    UserRole.physiotherapist => AppColors.navy,
+    UserRole.admin => AppColors.admin,
   };
 
   Color get tint => switch (this) {
-    UserRole.patient => AppColors.tealTint,
-    UserRole.physiotherapist => AppColors.primaryTint,
-    UserRole.admin => AppColors.purpleTint,
+    UserRole.patient => AppColors.primaryTint,
+    UserRole.physiotherapist => AppColors.navyTint,
+    UserRole.admin => AppColors.adminTint,
   };
 
   IconData get icon => switch (this) {
