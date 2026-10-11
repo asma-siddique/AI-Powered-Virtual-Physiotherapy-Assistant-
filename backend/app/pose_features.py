@@ -39,9 +39,10 @@ What each value means:
   - hip_sag: how far the hips are off the shoulder-ankle line
     (180 minus the shoulder-hip-ankle angle), the larger of the two sides.
   - depth: the exercise's working joint angle, the smaller of the two sides;
-    elbow for push-ups, knee for squats. Lower means deeper. Turning it into
-    "short of the target at the lowest point" needs the whole repetition and
-    belongs to the severity engine (SCRUM-66), not to a single frame.
+    elbow for push-ups, knee for squats. Lower means deeper. What a
+    repetition is judged on is how far its lowest point stayed short of the
+    target depth (`depth_shortfall`), which needs the whole repetition, so it
+    is worked out when the repetition ends, not per frame.
 
 Where both sides are measured and one value is reported, the worse side is
 taken, so a problem on either side is never hidden.
@@ -73,6 +74,23 @@ JOINT_TRIPLETS: dict[str, tuple[str, str, str]] = {
 
 # The working joint whose angle is the "depth" of each exercise.
 DEPTH_JOINT = {"push-ups": "elbow", "squats": "knee"}
+
+# The working joint's angle at the target depth: the elbow at a right angle at
+# the bottom of a push-up, the knee at a right angle (thighs about parallel to
+# the floor) at the bottom of a squat. Starting values, like the severity
+# thresholds; not derived from REHAB24-6 or clinically reviewed.
+DEPTH_TARGET = {"push-ups": 90.0, "squats": 90.0}
+
+
+def depth_shortfall(exercise_slug: str, lowest_angle: float) -> float | None:
+    """How many degrees a repetition stopped short of the target depth, from
+    the lowest working-joint angle reached during it: 0 at or past the target.
+    This is the value the template's "depth" thresholds are judged against.
+    None when the exercise has no depth target."""
+    target = DEPTH_TARGET.get(exercise_slug)
+    if target is None:
+        return None
+    return max(0.0, lowest_angle - target)
 
 
 @dataclass(frozen=True)

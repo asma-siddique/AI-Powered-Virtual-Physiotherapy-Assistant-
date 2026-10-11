@@ -54,8 +54,8 @@ PAIN_WINDOW = timedelta(hours=24)
 HISTORY_LIMIT = 1000
 
 
-def _required(target_joints: list[str], checks: list[dict]) -> list[str]:
-    return pose.required_landmarks(target_joints, [check["key"] for check in checks])
+def _required(target_joints: list[str], checks: list[dict], exercise_slug: str) -> list[str]:
+    return pose.required_landmarks(target_joints, [check["key"] for check in checks], exercise_slug)
 
 
 def _current_item(db: Session, patient: Account, item_id: uuid.UUID) -> tuple[PlanExercise, ExerciseTemplate]:
@@ -91,7 +91,7 @@ def requirements(db: Session, patient: Account, item_id: uuid.UUID) -> PrecheckR
         reps=item.reps,
         rest_seconds=item.rest_seconds,
         difficulty=item.difficulty.value,
-        required_landmarks=_required(template.target_joints, template.checks),
+        required_landmarks=_required(template.target_joints, template.checks, template.slug),
         min_visibility=pose.MIN_VISIBILITY,
         min_brightness=pose.MIN_BRIGHTNESS,
         hold_ms=pose.HOLD_MS,
@@ -377,7 +377,7 @@ def to_out(db: Session, session: ExerciseSession) -> SessionOut:
         difficulty=session.difficulty,
         prescription_revision=session.prescription_revision,
         template_version=session.template_version,
-        required_landmarks=_required(template.target_joints, session.checks),
+        required_landmarks=_required(template.target_joints, session.checks, template.slug),
         checks=session.checks,
         totals=totals(db, session.id),
         pause=_pause(db, session),
@@ -389,7 +389,7 @@ def start(
     db: Session, patient: Account, item_id: uuid.UUID, evidence: PrecheckEvidence, ip: str | None
 ) -> ExerciseSession:
     item, template = _current_item(db, patient, item_id)
-    required = _required(template.target_joints, template.checks)
+    required = _required(template.target_joints, template.checks, template.slug)
     problems = pose.precheck_problems(
         required,
         brightness=evidence.brightness,

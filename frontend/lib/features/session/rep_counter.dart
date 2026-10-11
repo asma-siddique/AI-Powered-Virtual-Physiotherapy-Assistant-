@@ -40,6 +40,17 @@ class RepProfile {
 const repProfiles = <String, RepProfile>{
   // Hip-shoulder-elbow: about 15 with the arm by the side, 90 at shoulder height.
   'arm-abduction': RepProfile(joint: 'shoulder', rest: 30, peak: 70),
+  // Shoulder-hip-knee, front view: about 170 to 175 standing (the shoulders
+  // are a little wider than the hips), falling by as much as the leg is moved
+  // out to the side. 155 is about 20 degrees of abduction. The standing leg
+  // stays near rest, so the side further into the movement is the moving leg.
+  'leg-abduction': RepProfile(joint: 'hip', rest: 165, peak: 155),
+  // Hip-knee-ankle, side view: 180 standing, about 90 for the front knee at
+  // the bottom of a lunge. The more bent knee is the front one.
+  'leg-lunge': RepProfile(joint: 'knee', rest: 160, peak: 115),
+  // Shoulder-elbow-wrist, side view: about 170 to 180 at the top of the
+  // plank, about 90 at the bottom.
+  'push-ups': RepProfile(joint: 'elbow', rest: 155, peak: 110),
   // Hip-knee-ankle: 180 standing, about 90 at the bottom of a squat.
   'squats': RepProfile(joint: 'knee', rest: 160, peak: 115),
 };

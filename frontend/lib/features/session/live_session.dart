@@ -38,6 +38,10 @@ class LiveSessionEngine {
   final RepCounter? _counter;
   final _worst = <String, double>{};
 
+  /// The lowest working-joint angle reached during the repetition, for the
+  /// depth check: it is judged on the lowest point, not the worst frame.
+  double? _lowestDepth;
+
   /// The last three values seen for each check, so one wild camera frame
   /// cannot become the "worst" of a repetition and pause a session by itself.
   final _recent = <String, List<double>>{};
@@ -60,17 +64,29 @@ class LiveSessionEngine {
   /// True once every prescribed set has all its repetitions.
   bool get prescriptionDone => _set > sets;
 
-  /// Whether a check's value can be judged as "the worst seen during the
-  /// repetition". Depth is the one that cannot: it is about the lowest point
-  /// reached, which needs its own rule and is not built yet.
-  bool _measurable(String key) =>
-      key != 'depth' && isCheckSupported(key, exerciseSlug);
+  /// Whether this version can measure a check for this exercise.
+  bool _measurable(String key) => isCheckSupported(key, exerciseSlug);
+
+  /// Forgets what was measured during the repetition in progress.
+  void _clearRep() {
+    _worst.clear();
+    _lowestDepth = null;
+  }
+
+  /// What is sent for one check when a repetition ends. Most checks send the
+  /// worst value held during it; depth sends how far its lowest point stayed
+  /// short of the target. Null when the check was never clearly in view.
+  double? _measureOf(String key) {
+    if (key != 'depth') return _worst[key];
+    final lowest = _lowestDepth;
+    return lowest == null ? null : depthShortfall(exerciseSlug, lowest);
+  }
 
   /// Forgets a movement in progress, for example when the session is paused.
   /// Counting starts again once the resting position has been seen.
   void interrupt() {
     _counter?.reset();
-    _worst.clear();
+    _clearRep();
     _recent.clear();
   }
 
@@ -135,12 +151,17 @@ class LiveSessionEngine {
       final steady = _steady(key, value);
       // Only what happens during the movement itself is held against it.
       if (!measuring) continue;
+      if (key == 'depth') {
+        final lowest = _lowestDepth;
+        if (lowest == null || steady < lowest) _lowestDepth = steady;
+        continue;
+      }
       final worst = _worst[key];
       if (worst == null || steady > worst) _worst[key] = steady;
     }
     if (!measuring && wasInRep) {
       // The movement was given up half-way or lost from view.
-      _worst.clear();
+      _clearRep();
     }
     if (rep == null) return null;
 
@@ -151,9 +172,9 @@ class LiveSessionEngine {
       endedMs: rep.endedMs.round(),
       // Every check is accounted for; one that was never in view is null
       // rather than left out or guessed.
-      measures: {for (final key in checkKeys) key: _worst[key]},
+      measures: {for (final key in checkKeys) key: _measureOf(key)},
     );
-    _worst.clear();
+    _clearRep();
     _repsInSet += 1;
     _counted += 1;
     _rollOver();

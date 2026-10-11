@@ -16,6 +16,9 @@ const POSE_MODEL =
 const LANDMARKS = 33;
 // Brightness is cheap to estimate but not free: once every few frames is enough.
 const BRIGHTNESS_EVERY = 6;
+// A frame is handled when the video reports a new picture, and at least this
+// often regardless, so a video clock that stops moving cannot stop tracking.
+const MAX_FRAME_GAP_MS = 100;
 
 let video = null;
 let stream = null;
@@ -29,16 +32,6 @@ let lastVideoTime = -1;
 // Goes up with every start and stop, so a start that was overtaken by a stop
 // (the screen was left while the camera was still opening) knows to give up.
 let generation = 0;
-
-// What MediaPipe is running on, and what is needed to move it to the CPU.
-let vision = null;
-let files = null;
-let delegate = null;
-let switching = false;
-let failuresInARow = 0;
-
-// For troubleshooting: `physioPose.status()` in the browser's console.
-const stats = { frames: 0, withPerson: 0, errors: 0, lastError: null };
 
 const probe = document.createElement('canvas');
 probe.width = 32;
@@ -64,57 +57,84 @@ function ensureVideo() {
   // Like a mirror: moving right moves the picture right.
   video.style.transform = 'scaleX(-1)';
   video.style.background = '#172B4D';
+  // The browser pauses a video when the page moves it (Flutter does when it
+  // places the camera on screen). While tracking, it is started again at
+  // once; otherwise the picture freezes and no new frames ever arrive.
+  video.addEventListener('pause', resumeVideo);
   return video;
 }
 
-const landmarkerOptions = (on) => ({
-  baseOptions: { modelAssetPath: POSE_MODEL, delegate: on },
-  runningMode: 'VIDEO',
-  numPoses: 1,
-});
+function resumeVideo() {
+  if (!running || !video || !video.paused || !video.srcObject) return;
+  lastProblem = 'the camera picture was paused and has been started again';
+  if (resumes === 0) console.info(`[PhysioAI pose] ${lastProblem}`);
+  resumes += 1;
+  video.play().catch((error) => report('the camera picture could not restart', error));
+}
+
+let delegate = null;
+// Problems are reported in the browser console (F12), each kind once, so a
+// tracker that cannot see anyone is never silent about why.
+const reported = new Set();
+let detectFailures = 0;
+let resumes = 0;
+let lastFrameAt = 0;
+let framesSent = 0;
+let posesSeen = 0;
+let lastProblem = null;
+// After this many detection failures in a row on the graphics card, the
+// tracker is rebuilt to run on the processor instead.
+const GPU_FAILURES_BEFORE_CPU = 15;
+
+function report(kind, error) {
+  lastProblem = `${kind}: ${(error && error.message) || error}`;
+  if (reported.has(kind)) return;
+  reported.add(kind);
+  console.error(`[PhysioAI pose] ${kind}`, error);
+}
+
+let vision = null;
+let files = null;
+
+async function createLandmarker(useDelegate) {
+  if (!vision) {
+    vision = await import(`${TASKS_VISION}/vision_bundle.mjs`);
+    files = await vision.FilesetResolver.forVisionTasks(`${TASKS_VISION}/wasm`);
+  }
+  const created = await vision.PoseLandmarker.createFromOptions(files, {
+    baseOptions: { modelAssetPath: POSE_MODEL, delegate: useDelegate },
+    runningMode: 'VIDEO',
+    numPoses: 1,
+  });
+  delegate = useDelegate;
+  console.info(`[PhysioAI pose] tracker ready on the ${useDelegate}`);
+  return created;
+}
 
 async function loadLandmarker() {
   if (landmarker) return landmarker;
-  vision = await import(`${TASKS_VISION}/vision_bundle.mjs`);
-  files = await vision.FilesetResolver.forVisionTasks(`${TASKS_VISION}/wasm`);
   try {
-    landmarker = await vision.PoseLandmarker.createFromOptions(
-      files,
-      landmarkerOptions('GPU')
-    );
-    delegate = 'GPU';
-  } catch (_) {
+    landmarker = await createLandmarker('GPU');
+  } catch (error) {
     // No usable graphics acceleration: slower, but it still works.
-    landmarker = await vision.PoseLandmarker.createFromOptions(
-      files,
-      landmarkerOptions('CPU')
-    );
-    delegate = 'CPU';
+    report('GPU tracker could not start, using the CPU', error);
+    landmarker = await createLandmarker('CPU');
   }
   return landmarker;
 }
 
-// Some graphics drivers accept the model and then fail on every picture.
-// Rather than show a live camera that never sees anyone, carry on without
-// graphics acceleration.
+let switching = false;
+
 async function switchToCpu() {
-  if (switching || delegate !== 'GPU') return;
+  if (switching || delegate === 'CPU') return;
   switching = true;
-  console.warn('PhysioAI: pose tracking is switching to the CPU.');
   try {
-    const slower = await vision.PoseLandmarker.createFromOptions(
-      files,
-      landmarkerOptions('CPU')
-    );
-    try {
-      landmarker.close();
-    } catch (_) {}
-    landmarker = slower;
-    delegate = 'CPU';
-    failuresInARow = 0;
+    const old = landmarker;
+    landmarker = await createLandmarker('CPU');
+    detectFailures = 0;
+    if (old) old.close();
   } catch (error) {
-    stats.lastError = String((error && error.message) || error);
-    console.error('PhysioAI: pose tracking could not start on the CPU.', error);
+    report('CPU tracker could not start', error);
   } finally {
     switching = false;
   }
@@ -130,45 +150,71 @@ function measureBrightness() {
   return total / (pixels.length / 4) / 255;
 }
 
+function detect(now) {
+  if (switching || !landmarker) return null;
+  try {
+    const found = landmarker.detectForVideo(video, now).landmarks[0] || null;
+    detectFailures = 0;
+    return found;
+  } catch (error) {
+    detectFailures += 1;
+    report(`pose detection failed on the ${delegate}`, error);
+    if (delegate === 'GPU' && detectFailures >= GPU_FAILURES_BEFORE_CPU) {
+      switchToCpu();
+    }
+    return null;
+  }
+}
+
+function sendFrame() {
+  const now = performance.now();
+  if (frameCount++ % BRIGHTNESS_EVERY === 0) {
+    try {
+      brightness = measureBrightness();
+    } catch (error) {
+      report('brightness could not be measured', error);
+    }
+  }
+  const found = detect(now);
+  const packed = new Float32Array(found ? 2 + LANDMARKS * 3 : 2);
+  packed[0] = brightness;
+  packed[1] = now;
+  if (found) {
+    posesSeen += 1;
+    for (let i = 0; i < LANDMARKS; i++) {
+      const point = found[i];
+      // The picture is shown mirrored, so its left edge is the camera's right.
+      packed[2 + i * 3] = 1 - point.x;
+      packed[3 + i * 3] = point.y;
+      packed[4 + i * 3] = point.visibility ?? 0;
+    }
+  }
+  if (frameCallback) {
+    frameCallback(packed);
+    framesSent += 1;
+  }
+}
+
 function tick() {
   if (!running) return;
-  if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
+  try {
+    if (video.paused) resumeVideo();
     const now = performance.now();
-    if (frameCount++ % BRIGHTNESS_EVERY === 0) brightness = measureBrightness();
-    let found = null;
-    if (!switching) {
-      try {
-        found = landmarker.detectForVideo(video, now).landmarks[0] || null;
-        failuresInARow = 0;
-      } catch (error) {
-        // Never silent: a camera that sees nobody and a tracker that is
-        // failing look the same on screen.
-        stats.errors++;
-        stats.lastError = String((error && error.message) || error);
-        if (stats.errors <= 3) {
-          console.error('PhysioAI: pose tracking failed on a frame.', error);
-        }
-        if (++failuresInARow >= 5) switchToCpu();
-      }
+    const newPicture = video.currentTime !== lastVideoTime;
+    if (
+      video.readyState >= 2 &&
+      (newPicture || now - lastFrameAt >= MAX_FRAME_GAP_MS)
+    ) {
+      lastVideoTime = video.currentTime;
+      lastFrameAt = now;
+      sendFrame();
     }
-    stats.frames++;
-    if (found) stats.withPerson++;
-    const packed = new Float32Array(found ? 2 + LANDMARKS * 3 : 2);
-    packed[0] = brightness;
-    packed[1] = now;
-    if (found) {
-      for (let i = 0; i < LANDMARKS; i++) {
-        const point = found[i];
-        // The picture is shown mirrored, so its left edge is the camera's right.
-        packed[2 + i * 3] = 1 - point.x;
-        packed[3 + i * 3] = point.y;
-        packed[4 + i * 3] = point.visibility ?? 0;
-      }
-    }
-    if (frameCallback) frameCallback(packed);
+  } catch (error) {
+    // One bad frame must never stop the tracking for the rest of the session.
+    report('a camera frame could not be handled', error);
+  } finally {
+    if (running) requestAnimationFrame(tick);
   }
-  requestAnimationFrame(tick);
 }
 
 async function start() {
@@ -207,8 +253,8 @@ async function start() {
     await element.play();
     await loadLandmarker();
   } catch (error) {
-    stats.lastError = String((error && error.message) || error);
-    console.error('PhysioAI: the camera or pose tracking could not start.', error);
+    report('the camera or the pose model could not be started', error);
+    // A newer start owns the camera now: release only what this one opened.
     if (mine === generation) stop();
     else release();
     return 'failed';
@@ -220,9 +266,12 @@ async function start() {
   }
   running = true;
   frameCount = 0;
+  framesSent = 0;
+  posesSeen = 0;
+  detectFailures = 0;
+  resumes = 0;
+  lastFrameAt = 0;
   lastVideoTime = -1;
-  stats.frames = 0;
-  stats.withPerson = 0;
   requestAnimationFrame(tick);
   return 'ok';
 }
@@ -246,12 +295,19 @@ window.physioPose = {
   onFrame: (callback) => {
     frameCallback = callback;
   },
-  // What the tracker is doing right now, for troubleshooting.
+  // For troubleshooting in the browser console: physioPose.status()
   status: () => ({
     running,
     delegate,
+    // False means the app is not listening: frames would go nowhere.
     listening: frameCallback !== null,
     video: video ? `${video.videoWidth}x${video.videoHeight}` : null,
-    ...stats,
+    videoReady: !!video && video.readyState >= 2,
+    videoPaused: !!video && video.paused,
+    resumes,
+    framesSent,
+    posesSeen,
+    detectFailures,
+    lastProblem,
   }),
 };
