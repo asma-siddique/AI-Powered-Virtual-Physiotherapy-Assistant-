@@ -5,9 +5,12 @@ import '../theme/app_theme.dart';
 
 /// The PhysioAI mark and wordmark, identical everywhere it appears.
 class PhysioAiLogo extends StatelessWidget {
-  const PhysioAiLogo({super.key, this.size = 32});
+  const PhysioAiLogo({super.key, this.size = 32, this.onDark = false});
 
   final double size;
+
+  /// White wordmark, for dark backgrounds.
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +43,7 @@ class PhysioAiLogo extends StatelessWidget {
           style: TextStyle(
             fontSize: size * 0.62,
             fontWeight: FontWeight.w700,
-            color: AppColors.text,
+            color: onDark ? Colors.white : AppColors.text,
             letterSpacing: -0.3,
           ),
         ),

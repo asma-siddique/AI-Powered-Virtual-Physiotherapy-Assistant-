@@ -59,7 +59,8 @@ PoseFrame frame(
         },
 );
 
-/// A camera the test controls.
+/// A camera the test controls. Like the real one, it cannot show anything
+/// once it has been switched off.
 class FakeCamera implements PoseSource {
   FakeCamera({this.problem});
 
@@ -87,7 +88,12 @@ class FakeCamera implements PoseSource {
   @override
   Future<void> stop() async => stopped = true;
 
-  void show(PoseFrame frame) => _frames.add(frame);
+  void show(PoseFrame frame) {
+    if (stopped) {
+      throw StateError('The camera was switched off; it has no more frames.');
+    }
+    _frames.add(frame);
+  }
 }
 
 /// Jane opens the camera check for Squats, the first exercise of her plan.
@@ -331,6 +337,23 @@ void main() {
       expect(find.byKey(const Key('sign-out')), findsNothing);
       expect(find.byKey(const Key('end-session')), findsNothing);
       expect(opened.patient.started, isEmpty);
+    });
+
+    testWidgets('the camera stays on while the screen is open, and goes off '
+        'when it is left', (tester) async {
+      final opened = await openSession(tester);
+
+      // Long after the screen opened, the camera is still the screen's.
+      await tester.pump(const Duration(seconds: 5));
+      expect(opened.camera.stopped, isFalse);
+      await see(tester, opened.camera, frame(0, nobody: true));
+      expect(
+        guidance(tester),
+        'Stand in front of the camera so it can see you.',
+      );
+
+      await tapKey(tester, 'session-back');
+      expect(opened.camera.stopped, isTrue);
     });
 
     testWidgets('gives specific guidance as the picture changes', (

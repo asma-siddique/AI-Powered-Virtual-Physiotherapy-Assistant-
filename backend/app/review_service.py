@@ -7,7 +7,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import audit, clock, errors, session_service
+from app import audit, clock, errors, notifications, session_service
 from app.models import Account, ExerciseSession, ExerciseTemplate, PatientAssignment
 from app.schemas import PersonRef
 from app.session_schemas import FlaggedSession
@@ -69,6 +69,40 @@ def session_of_patient(
     session = db.execute(query.with_for_update() if lock else query).scalar_one_or_none()
     if session is None:
         raise errors.not_found("Session not found.")
+    return session
+
+
+def set_note(
+    db: Session, physio: Account, session_id: uuid.UUID, note: str, ip: str | None
+) -> ExerciseSession:
+    """Writes, replaces or (when empty) removes the physiotherapist's note on
+    a session of one of their own patients."""
+    session = session_of_patient(db, physio, session_id, lock=True)
+    text = note.strip()
+    session.clinician_note = text or None
+    session.clinician_note_by = physio.id if text else None
+    session.clinician_note_at = clock.utcnow() if text else None
+    audit.record(
+        db,
+        "session.note_saved" if text else "session.note_removed",
+        actor_id=physio.id,
+        target_type="exercise_session",
+        target_id=session.id,
+        # What was written is clinical; the trail records only that it was.
+        detail={"patient_id": str(session.patient_id)},
+        ip=ip,
+    )
+    if text:
+        template = db.get(ExerciseTemplate, session.exercise_template_id)
+        notifications.send(
+            db,
+            session.patient_id,
+            notifications.SESSION_NOTE,
+            "A note from your physiotherapist",
+            f"{physio.full_name} wrote a note on your {template.name} session.",
+            link="/patient/history",
+        )
+    db.commit()
     return session
 
 

@@ -1,6 +1,7 @@
 import math
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -180,6 +181,27 @@ class SessionBrief(BaseModel):
     # red | low_score; empty when the session was not flagged.
     flag_reasons: list[str]
     reviewed_at: datetime | None
+    # 0 to 10, or None when the patient chose not to answer.
+    pain_before: int | None = None
+    pain_after: int | None = None
+    has_notes: bool = False
+
+
+class PainIn(BaseModel):
+    """An optional pain rating around a session (US 5.3). Either part may be
+    left out; nothing here is ever required to start or end a session."""
+
+    # before | after
+    moment: Literal["before", "after"]
+    # 0 is no pain, 10 the worst imaginable. None clears an earlier answer.
+    score: int | None = Field(default=None, ge=0, le=10)
+    # Sent with the "after" rating; None leaves the note as it is.
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ClinicianNoteIn(BaseModel):
+    # Empty removes the note.
+    note: str = Field(max_length=2000)
 
 
 class RepetitionDetail(BaseModel):
@@ -200,6 +222,9 @@ class SessionDetail(SessionBrief):
     checks: list[SeverityCheck]
     scored_repetitions: int | None
     repetitions: list[RepetitionDetail]
+    patient_note: str | None = None
+    clinician_note: str | None = None
+    clinician_note_at: datetime | None = None
 
 
 class FlaggedSession(BaseModel):

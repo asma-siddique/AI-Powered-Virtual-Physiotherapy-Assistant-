@@ -26,6 +26,20 @@ let frameCount = 0;
 let brightness = 0;
 let lastVideoTime = -1;
 
+// Goes up with every start and stop, so a start that was overtaken by a stop
+// (the screen was left while the camera was still opening) knows to give up.
+let generation = 0;
+
+// What MediaPipe is running on, and what is needed to move it to the CPU.
+let vision = null;
+let files = null;
+let delegate = null;
+let switching = false;
+let failuresInARow = 0;
+
+// For troubleshooting: `physioPose.status()` in the browser's console.
+const stats = { frames: 0, withPerson: 0, errors: 0, lastError: null };
+
 const probe = document.createElement('canvas');
 probe.width = 32;
 probe.height = 24;
@@ -37,6 +51,13 @@ function ensureVideo() {
   video.autoplay = true;
   video.muted = true;
   video.playsInline = true;
+  // Pinned to the space Flutter gives it. Left as an ordinary inline element
+  // it is laid out like a word in a line of text and ends up outside that
+  // space, so the patient sees the tracked skeleton but no picture.
+  video.style.display = 'block';
+  video.style.position = 'absolute';
+  video.style.top = '0';
+  video.style.left = '0';
   video.style.width = '100%';
   video.style.height = '100%';
   video.style.objectFit = 'fill';
@@ -46,30 +67,57 @@ function ensureVideo() {
   return video;
 }
 
+const landmarkerOptions = (on) => ({
+  baseOptions: { modelAssetPath: POSE_MODEL, delegate: on },
+  runningMode: 'VIDEO',
+  numPoses: 1,
+});
+
 async function loadLandmarker() {
   if (landmarker) return landmarker;
-  const vision = await import(`${TASKS_VISION}/vision_bundle.mjs`);
-  const files = await vision.FilesetResolver.forVisionTasks(
-    `${TASKS_VISION}/wasm`
-  );
-  const options = (delegate) => ({
-    baseOptions: { modelAssetPath: POSE_MODEL, delegate },
-    runningMode: 'VIDEO',
-    numPoses: 1,
-  });
+  vision = await import(`${TASKS_VISION}/vision_bundle.mjs`);
+  files = await vision.FilesetResolver.forVisionTasks(`${TASKS_VISION}/wasm`);
   try {
     landmarker = await vision.PoseLandmarker.createFromOptions(
       files,
-      options('GPU')
+      landmarkerOptions('GPU')
     );
+    delegate = 'GPU';
   } catch (_) {
     // No usable graphics acceleration: slower, but it still works.
     landmarker = await vision.PoseLandmarker.createFromOptions(
       files,
-      options('CPU')
+      landmarkerOptions('CPU')
     );
+    delegate = 'CPU';
   }
   return landmarker;
+}
+
+// Some graphics drivers accept the model and then fail on every picture.
+// Rather than show a live camera that never sees anyone, carry on without
+// graphics acceleration.
+async function switchToCpu() {
+  if (switching || delegate !== 'GPU') return;
+  switching = true;
+  console.warn('PhysioAI: pose tracking is switching to the CPU.');
+  try {
+    const slower = await vision.PoseLandmarker.createFromOptions(
+      files,
+      landmarkerOptions('CPU')
+    );
+    try {
+      landmarker.close();
+    } catch (_) {}
+    landmarker = slower;
+    delegate = 'CPU';
+    failuresInARow = 0;
+  } catch (error) {
+    stats.lastError = String((error && error.message) || error);
+    console.error('PhysioAI: pose tracking could not start on the CPU.', error);
+  } finally {
+    switching = false;
+  }
 }
 
 function measureBrightness() {
@@ -89,11 +137,23 @@ function tick() {
     const now = performance.now();
     if (frameCount++ % BRIGHTNESS_EVERY === 0) brightness = measureBrightness();
     let found = null;
-    try {
-      found = landmarker.detectForVideo(video, now).landmarks[0] || null;
-    } catch (_) {
-      found = null;
+    if (!switching) {
+      try {
+        found = landmarker.detectForVideo(video, now).landmarks[0] || null;
+        failuresInARow = 0;
+      } catch (error) {
+        // Never silent: a camera that sees nobody and a tracker that is
+        // failing look the same on screen.
+        stats.errors++;
+        stats.lastError = String((error && error.message) || error);
+        if (stats.errors <= 3) {
+          console.error('PhysioAI: pose tracking failed on a frame.', error);
+        }
+        if (++failuresInARow >= 5) switchToCpu();
+      }
     }
+    stats.frames++;
+    if (found) stats.withPerson++;
     const packed = new Float32Array(found ? 2 + LANDMARKS * 3 : 2);
     packed[0] = brightness;
     packed[1] = now;
@@ -115,9 +175,11 @@ async function start() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return 'unsupported';
   }
+  stop();
+  const mine = ++generation;
+  let opened = null;
   try {
-    stop();
-    stream = await navigator.mediaDevices.getUserMedia({
+    opened = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
     });
@@ -131,23 +193,42 @@ async function start() {
     }
     return 'failed';
   }
+  const release = () => {
+    for (const track of opened.getTracks()) track.stop();
+  };
+  if (mine !== generation) {
+    release();
+    return 'cancelled';
+  }
+  stream = opened;
   try {
     const element = ensureVideo();
     element.srcObject = stream;
     await element.play();
     await loadLandmarker();
-  } catch (_) {
-    stop();
+  } catch (error) {
+    stats.lastError = String((error && error.message) || error);
+    console.error('PhysioAI: the camera or pose tracking could not start.', error);
+    if (mine === generation) stop();
+    else release();
     return 'failed';
+  }
+  if (mine !== generation) {
+    // Stopped while the model was still loading.
+    release();
+    return 'cancelled';
   }
   running = true;
   frameCount = 0;
   lastVideoTime = -1;
+  stats.frames = 0;
+  stats.withPerson = 0;
   requestAnimationFrame(tick);
   return 'ok';
 }
 
 function stop() {
+  generation++;
   running = false;
   if (stream) {
     for (const track of stream.getTracks()) track.stop();
@@ -165,4 +246,12 @@ window.physioPose = {
   onFrame: (callback) => {
     frameCallback = callback;
   },
+  // What the tracker is doing right now, for troubleshooting.
+  status: () => ({
+    running,
+    delegate,
+    listening: frameCallback !== null,
+    video: video ? `${video.videoWidth}x${video.videoHeight}` : null,
+    ...stats,
+  }),
 };

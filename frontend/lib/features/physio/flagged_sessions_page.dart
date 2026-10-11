@@ -141,6 +141,82 @@ class _ReviewFooterState extends ConsumerState<_ReviewFooter> {
   bool _busy = false;
   String? _error;
 
+  late final _note = TextEditingController(
+    text: widget.session.clinicianNote ?? '',
+  );
+  bool _savingNote = false;
+  bool _noteSaved = false;
+  String? _noteError;
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveNote() async {
+    setState(() {
+      _savingNote = true;
+      _noteSaved = false;
+      _noteError = null;
+    });
+    try {
+      await ref
+          .read(physioRepositoryProvider)
+          .saveSessionNote(widget.session.id, _note.text.trim());
+      if (!mounted) return;
+      setState(() {
+        _savingNote = false;
+        _noteSaved = true;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _savingNote = false;
+        _noteError = error.message;
+      });
+    }
+  }
+
+  Widget _noteEditor() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      TextField(
+        key: const Key('clinician-note'),
+        controller: _note,
+        maxLength: 2000,
+        minLines: 1,
+        maxLines: 3,
+        onChanged: (_) => setState(() => _noteSaved = false),
+        decoration: const InputDecoration(
+          labelText: 'Your note on this session',
+          hintText: 'Seen by the patient and included in reports',
+        ),
+      ),
+      if (_noteError != null)
+        InlineBanner(key: const Key('note-error'), message: _noteError!),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: _noteSaved
+            ? Text(
+                'Note saved.',
+                key: const Key('note-saved'),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.success),
+              )
+            : TextButton.icon(
+                key: const Key('save-note'),
+                onPressed: _savingNote ? null : _saveNote,
+                icon: const Icon(Icons.save_outlined, size: 18),
+                label: const Text('Save note'),
+              ),
+      ),
+      const SizedBox(height: 8),
+    ],
+  );
+
   Future<void> _review() async {
     setState(() {
       _busy = true;
@@ -165,18 +241,26 @@ class _ReviewFooterState extends ConsumerState<_ReviewFooter> {
   Widget build(BuildContext context) {
     final reviewedAt = widget.session.reviewedAt;
     if (reviewedAt != null) {
-      return Text(
-        'Reviewed on ${formatDateTime(reviewedAt)}.',
-        key: const Key('reviewed-note'),
-        style: Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(color: AppColors.success),
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _noteEditor(),
+          Text(
+            'Reviewed on ${formatDateTime(reviewedAt)}.',
+            key: const Key('reviewed-note'),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: AppColors.success),
+          ),
+        ],
       );
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
+        _noteEditor(),
         if (_error != null) ...[
           InlineBanner(key: const Key('review-error'), message: _error!),
           const SizedBox(height: 12),

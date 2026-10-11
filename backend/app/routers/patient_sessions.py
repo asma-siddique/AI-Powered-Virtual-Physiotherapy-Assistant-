@@ -7,6 +7,7 @@ from app import session_service
 from app.deps import ConsentedPatient, DbSession, client_ip
 from app.session_schemas import (
     Acknowledge,
+    PainIn,
     PrecheckRequirements,
     RepetitionIn,
     RepetitionOut,
@@ -57,6 +58,16 @@ def list_sessions(
 def get_session_detail(session_id: uuid.UUID, patient: ConsentedPatient, db: DbSession) -> SessionDetail:
     """One of the patient's own sessions with every repetition in it."""
     return session_service.detail(db, session_service.own_session(db, patient, session_id))
+
+
+@router.put("/sessions/{session_id}/pain", response_model=SessionDetail)
+def log_pain(
+    session_id: uuid.UUID, body: PainIn, patient: ConsentedPatient, request: Request, db: DbSession
+) -> SessionDetail:
+    """Stores the patient's optional pain rating before or after a session,
+    with an optional note. Nothing about a session depends on it."""
+    session = session_service.record_pain(db, patient, session_id, body, client_ip(request))
+    return session_service.detail(db, session)
 
 
 @router.get("/sessions/{session_id}", response_model=SessionOut)

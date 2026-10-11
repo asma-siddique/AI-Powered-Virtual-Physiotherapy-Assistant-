@@ -44,6 +44,17 @@ abstract final class AppColors {
   static const textHint = Color(0xFF90A4AE);
   static const disabled = Color(0xFFB0BEC5);
 
+  // Warm accents, from the same family as the teal: used sparingly, for
+  // numbers and highlights that should feel human rather than clinical.
+  static const aqua = Color(0xFF83C5BE);
+  static const ice = Color(0xFFEDF6F9);
+  static const sand = Color(0xFFE2C4AE);
+  static const clay = Color(0xFFA8674F);
+
+  // The night the holograms stand in.
+  static const night = Color(0xFF05111A);
+  static const nightTeal = Color(0xFF0A2A33);
+
   // Aliases used across the app.
   static const teal = primaryMint;
   static const tealDark = primary;
@@ -79,6 +90,13 @@ abstract final class AppColors {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [Color(0xFFEAF0FB), Color(0xFFE3F4F3), Color(0xFFF1ECFA)],
+  );
+
+  /// Behind the holograms on the first page and beside the sign-in forms.
+  static const immersiveGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF05111A), Color(0xFF082029), Color(0xFF0B3138)],
   );
 
   /// The immersive session background.

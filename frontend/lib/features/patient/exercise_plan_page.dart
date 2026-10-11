@@ -11,6 +11,7 @@ import '../exercises/exercise_models.dart';
 import '../shell/page_widgets.dart';
 import 'patient_home_page.dart' show DifficultyPill;
 import 'patient_repository.dart';
+import 'reminders.dart';
 
 /// "My Exercise Plan": what the physiotherapist has assigned, in order.
 class ExercisePlanPage extends ConsumerWidget {
@@ -47,6 +48,10 @@ class ExercisePlanPage extends ConsumerWidget {
               title: plan.name,
               subtitle:
                   'Assigned by ${plan.assignedBy.fullName} on ${formatDate(plan.createdAt)}',
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ReminderCard(days: plan.days),
             ),
             for (final item in plan.items)
               Padding(
@@ -85,6 +90,7 @@ class PlanItemCard extends StatelessWidget {
       width: narrow ? double.infinity : 168,
       height: narrow ? 180 : 210,
       child: HoloStage(
+        dark: true,
         radius: 18,
         label: Row(
           children: [

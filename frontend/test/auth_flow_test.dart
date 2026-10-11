@@ -1,10 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:physioai/app.dart';
+import 'package:physioai/core/alerts/desktop_alerts.dart';
 import 'package:physioai/core/api/api_client.dart';
 import 'package:physioai/core/api/api_exception.dart';
+import 'package:physioai/core/files/file_saver.dart';
 import 'package:physioai/core/api/token_store.dart';
 import 'package:physioai/features/account/account_repository.dart';
 import 'package:physioai/features/admin/admin_repository.dart';
@@ -17,6 +21,7 @@ import 'package:physioai/features/consent/consent_repository.dart';
 import 'package:physioai/features/exercises/exercise_models.dart';
 import 'package:physioai/features/notifications/notifications_repository.dart';
 import 'package:physioai/features/patient/patient_repository.dart';
+import 'package:physioai/features/patient/reminders.dart';
 import 'package:physioai/features/physio/physio_repository.dart';
 import 'package:physioai/features/session/pose/pose_source.dart';
 import 'package:physioai/features/session/precheck.dart';
@@ -187,6 +192,33 @@ class FakePhysioRepository implements PhysioRepository {
   @override
   Future<List<SessionBrief>> patientSessions(String patientId) async => [];
 
+  final notes = <({String sessionId, String note})>[];
+  ApiException? noteFailure;
+
+  @override
+  Future<SessionDetail> saveSessionNote(String id, String note) async {
+    if (noteFailure != null) throw noteFailure!;
+    notes.add((sessionId: id, note: note));
+    return session(id);
+  }
+
+  final reports = <({String patientId, DateTime since, DateTime until})>[];
+  ApiException? reportFailure;
+
+  @override
+  Future<DownloadedFile> patientReport(
+    String patientId, {
+    required DateTime since,
+    required DateTime until,
+  }) async {
+    if (reportFailure != null) throw reportFailure!;
+    reports.add((patientId: patientId, since: since, until: until));
+    return DownloadedFile(
+      bytes: Uint8List.fromList('%PDF-1.4 test'.codeUnits),
+      filename: 'physioai-report-test.pdf',
+    );
+  }
+
   @override
   Future<List<InviteCode>> inviteCodes() async => List.of(codes);
 
@@ -212,6 +244,9 @@ class FakePhysioRepository implements PhysioRepository {
       <({String patientId, String name, List<Map<String, dynamic>> items})>[];
   ApiException? assignFailure;
 
+  /// The days prescribed with each plan assigned, in order.
+  final assignedDays = <List<int>>[];
+
   @override
   Future<List<PatientSummary>> patients() async => List.of(roster);
 
@@ -228,8 +263,10 @@ class FakePhysioRepository implements PhysioRepository {
     required String patientId,
     required String name,
     required List<PlanItemDraft> items,
+    List<int> days = ExercisePlan.everyDay,
   }) async {
     if (assignFailure != null) throw assignFailure!;
+    assignedDays.add(days);
     assigned.add((
       patientId: patientId,
       name: name,
@@ -804,6 +841,76 @@ class FakePatientRepository implements PatientRepository {
     );
   }
 
+  /// The patient's reminder settings as the server holds them.
+  ReminderSettings reminderSettings = const ReminderSettings(
+    enabled: true,
+    time: '18:00',
+  );
+  final reminderSaves =
+      <({bool? enabled, String? time, int? utcOffsetMinutes})>[];
+  ApiException? reminderFailure;
+
+  @override
+  Future<ReminderSettings> reminders() async => reminderSettings;
+
+  @override
+  Future<ReminderSettings> saveReminders({
+    bool? enabled,
+    String? time,
+    int? utcOffsetMinutes,
+  }) async {
+    if (reminderFailure != null) throw reminderFailure!;
+    reminderSaves.add((
+      enabled: enabled,
+      time: time,
+      utcOffsetMinutes: utcOffsetMinutes,
+    ));
+    return reminderSettings = ReminderSettings(
+      enabled: enabled ?? reminderSettings.enabled,
+      time: time ?? reminderSettings.time,
+      utcOffsetMinutes: utcOffsetMinutes ?? reminderSettings.utcOffsetMinutes,
+      days: reminderSettings.days,
+    );
+  }
+
+  /// Every pain rating the app sent.
+  final painLogs =
+      <({String sessionId, String moment, int? score, String? note})>[];
+  ApiException? painFailure;
+
+  @override
+  Future<SessionDetail> logPain({
+    required String sessionId,
+    required String moment,
+    int? score,
+    String? note,
+  }) async {
+    if (painFailure != null) throw painFailure!;
+    painLogs.add((
+      sessionId: sessionId,
+      moment: moment,
+      score: score,
+      note: note,
+    ));
+    return SessionDetail(
+      id: sessionId,
+      status: _status,
+      startedAt: DateTime(2026, 10, 9, 17),
+      exercise: const ExerciseBrief(
+        id: 'ex',
+        name: 'Exercise',
+        domain: '',
+        bodyArea: '',
+        primaryTargets: '',
+        targetJoints: [],
+        instructions: '',
+      ),
+      sets: 1,
+      reps: 1,
+      durationSeconds: 0,
+    );
+  }
+
   /// The patient's finished sessions, most recent first.
   final history = <SessionBrief>[];
   final sessionDetails = <String, SessionDetail>{};
@@ -1042,6 +1149,8 @@ Future<FakeAuthRepository> pumpApp(
   FakeUserManagementRepository? users,
   FakeAdminRepository? admin,
   PoseSource? camera,
+  FileSaver? saver,
+  DesktopAlerts? alerts,
 }) async {
   tester.view.physicalSize = const Size(1400, 1100);
   tester.view.devicePixelRatio = 1;
@@ -1079,6 +1188,10 @@ Future<FakeAuthRepository> pumpApp(
         adminRepositoryProvider.overrideWithValue(
           admin ?? FakeAdminRepository(),
         ),
+        if (saver != null) fileSaverProvider.overrideWithValue(saver),
+        if (alerts != null) desktopAlertsProvider.overrideWithValue(alerts),
+        // The same clock everywhere the tests run: five hours ahead of UTC.
+        deviceUtcOffsetProvider.overrideWithValue(300),
         // Without one, the app has no camera, as on an unsupported device.
         if (camera != null)
           poseSourceProvider.overrideWith((ref) {

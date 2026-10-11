@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/alerts/desktop_alerts.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/common.dart';
@@ -31,6 +32,10 @@ class _NotificationBellState extends ConsumerState<NotificationBell> {
       _refreshEvery,
       (_) => ref.invalidate(notificationsProvider),
     );
+    // Clicking a desktop alert brings the app forward at what it is about.
+    ref.read(desktopAlertsProvider).onOpen = (link) {
+      if (link != null && mounted) context.go(link);
+    };
   }
 
   @override
@@ -63,6 +68,23 @@ class _NotificationBellState extends ConsumerState<NotificationBell> {
           );
       if (previous?.valueOrNull != null && arrived.isNotEmpty) {
         ref.invalidate(patientPlanProvider);
+      }
+      // Anything new and unread is also shown by the device itself, so a
+      // reminder or a flagged session is noticed from another tab. Not on
+      // the first load: those are not news.
+      if (previous?.valueOrNull != null) {
+        final alerts = ref.read(desktopAlertsProvider);
+        for (final item
+            in next.valueOrNull?.items ?? const <AppNotification>[]) {
+          if (item.isUnread && !seen.contains(item.id)) {
+            alerts.show(
+              id: item.id,
+              title: item.title,
+              body: item.body,
+              link: item.link,
+            );
+          }
+        }
       }
     });
 
@@ -111,6 +133,38 @@ class _NotificationsDialogState extends ConsumerState<_NotificationsDialog> {
     if (mounted && item.link != null) Navigator.of(context).pop(item.link);
   }
 
+  /// Whether this device may show alerts, and the way to turn them on.
+  Widget _desktopAlerts(TextTheme text) {
+    final alerts = ref.read(desktopAlertsProvider);
+    final muted = text.bodySmall?.copyWith(color: AppColors.textMuted);
+    return switch (alerts.permission) {
+      AlertPermission.unsupported => const SizedBox.shrink(),
+      AlertPermission.granted => Text(
+        'Desktop alerts are on while PhysioAI is open.',
+        key: const Key('desktop-alerts-on'),
+        style: muted,
+      ),
+      AlertPermission.denied => Text(
+        'Desktop alerts are blocked. Allow notifications for this site in '
+        'your browser to turn them on.',
+        key: const Key('desktop-alerts-blocked'),
+        style: muted,
+      ),
+      AlertPermission.undecided => Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          key: const Key('enable-desktop-alerts'),
+          onPressed: () async {
+            await alerts.request();
+            if (mounted) setState(() {});
+          },
+          icon: const Icon(Icons.notifications_active_outlined, size: 18),
+          label: const Text('Turn on desktop alerts'),
+        ),
+      ),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final feed = ref.watch(notificationsProvider);
@@ -152,6 +206,7 @@ class _NotificationsDialogState extends ConsumerState<_NotificationsDialog> {
                 const SizedBox(height: 8),
                 InlineBanner(message: _error!),
               ],
+              _desktopAlerts(text),
               const SizedBox(height: 8),
               Flexible(
                 child: feed.when(

@@ -173,11 +173,39 @@ Future<({FakeCamera camera, FakePatientRepository patient})> startArmSession(
       holdMs: 1500,
     );
   final opened = await openSession(tester, patient: repository);
+  await passCheck(tester, opened.camera);
+  return opened;
+}
+
+/// Jane opens the camera check for Arm Abduction and stops there: the
+/// camera has not seen her yet, so no session has started.
+Future<({FakeCamera camera, FakePatientRepository patient})> openArmCheck(
+  WidgetTester tester,
+  FakePatientRepository patient,
+) => openSession(
+  tester,
+  patient: patient
+    ..checks = const [trunkLean, elbowBend]
+    ..requirements['item-0'] = const PrecheckRequirements(
+      itemId: 'item-0',
+      exercise: armAbduction,
+      sets: 2,
+      reps: 3,
+      restSeconds: 30,
+      difficulty: Difficulty.easy,
+      requiredLandmarks: arms,
+      minVisibility: 0.6,
+      minBrightness: 0.25,
+      holdMs: 1500,
+    ),
+);
+
+/// Stands in view long enough for the check to pass and the session to start.
+Future<void> passCheck(WidgetTester tester, FakeCamera camera) async {
   for (final t in [0.0, 500.0, 1000.0, 1600.0]) {
-    await see(tester, opened.camera, armFrame(t));
+    await see(tester, camera, armFrame(t));
   }
   await tester.pumpAndSettle();
-  return opened;
 }
 
 /// The next moment on the camera's clock, so each repetition follows the last.

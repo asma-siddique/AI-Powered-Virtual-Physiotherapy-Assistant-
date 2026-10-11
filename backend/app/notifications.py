@@ -18,6 +18,8 @@ PHYSIOTHERAPIST_CHANGED = "physiotherapist_changed"
 PATIENT_ASSIGNED = "patient_assigned"
 PATIENT_UNASSIGNED = "patient_unassigned"
 SESSION_FLAGGED = "session_flagged"
+SESSION_REMINDER = "session_reminder"
+SESSION_NOTE = "session_note"
 
 _HOME = {Role.patient: "/patient", Role.physiotherapist: "/physio", Role.admin: "/admin"}
 
