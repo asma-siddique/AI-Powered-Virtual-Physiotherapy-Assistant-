@@ -500,8 +500,10 @@ void main() {
       expect(reminder, isNotNull, reason: 'the scheduler sent no reminder');
       expect(reminder!.title, 'Time for your exercises');
       expect(reminder.link, '/patient/session/${assigned.items.single.id}');
-      // And only one, however many times the scheduler runs.
-      await Future<void>.delayed(const Duration(seconds: 5));
+      // And only one, however many times the scheduler runs. The wait is
+      // kept under five seconds: that is when the test server closes an idle
+      // connection, and a request sent at that instant can be lost.
+      await Future<void>.delayed(const Duration(seconds: 3));
       expect(
         (await inbox.feed()).items.where((n) => n.kind == 'session_reminder'),
         hasLength(1),

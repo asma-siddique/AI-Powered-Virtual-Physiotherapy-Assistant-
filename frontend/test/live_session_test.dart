@@ -532,7 +532,7 @@ void main() {
     });
 
     test('an exercise it has no profile for is not counted', () {
-      final engine = engineFor(slug: 'leg-lunge');
+      final engine = engineFor(slug: 'shoulder-press');
       expect(engine.canCount, isFalse);
       expect(feed(engine, repFrames(0)), isEmpty);
       expect(engineFor(slug: '').canCount, isFalse);

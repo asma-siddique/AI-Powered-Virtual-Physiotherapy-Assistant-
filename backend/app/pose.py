@@ -75,8 +75,18 @@ CHECK_JOINTS = {
     "hip_sag": ("shoulder", "hip", "ankle"),
 }
 
+# Depth is measured on each exercise's working joint (DEPTH_JOINT in
+# app/pose_features.py), so what it has to see depends on the exercise: a
+# push-up's elbow angle cannot be measured without the wrist.
+DEPTH_CHECK_JOINTS = {
+    "push-ups": ("shoulder", "elbow", "wrist"),
+    "squats": ("hip", "knee", "ankle"),
+}
 
-def required_landmarks(target_joints: list[str], check_keys: Iterable[str] = ()) -> list[str]:
+
+def required_landmarks(
+    target_joints: list[str], check_keys: Iterable[str] = (), exercise_slug: str = ""
+) -> list[str]:
     """Landmarks that must be visible for an exercise with these target joints
     and these checks, in the pose model's own order. A check that could never
     be measured would silently never give feedback, so what it needs is asked
@@ -84,7 +94,10 @@ def required_landmarks(target_joints: list[str], check_keys: Iterable[str] = ())
     needed = set(_TRUNK)
     joints = list(target_joints)
     for key in check_keys:
-        joints += CHECK_JOINTS.get(key, ())
+        if key == "depth":
+            joints += DEPTH_CHECK_JOINTS.get(exercise_slug, ())
+        else:
+            joints += CHECK_JOINTS.get(key, ())
     for joint in joints:
         # A joint name this version does not know adds nothing rather than
         # blocking the patient: the trunk is always required.

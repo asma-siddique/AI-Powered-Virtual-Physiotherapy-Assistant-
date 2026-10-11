@@ -63,7 +63,8 @@ The live session (user stories 3.2 to 3.4), for Arm Abduction:
 - INFO and AMBER show the check's corrective message and the session carries on. A RED repetition pauses the session in the same database transaction that stores it. While it is paused the server refuses further repetitions, and it continues only when the patient acknowledges that repetition's message. The pause and the acknowledgment are audited.
 - A repetition whose reply was lost is sent again with the same key and stored once. One that could not be measured for a check is stored as unmeasured for that check rather than guessed.
 - Ending the session shows a summary read from the server: the form score, a comparison with the previous session of the same exercise, time, repetitions, and how many were good, INFO, AMBER and RED.
-- Exercises without a counting profile yet (Leg Abduction, Leg Lunge, Push-ups; Squats has a profile but has not been tried in front of a camera) still open a timed session and say that repetitions are not counted.
+- All five exercises have a counting profile (`repProfiles` in `rep_counter.dart`): Arm Abduction follows the shoulder, Leg Abduction the hip (the leg moving out about 20 degrees), Leg Lunge and Squats the knee, Push-ups the elbow. An exercise without a profile still opens a timed session and says that repetitions are not counted. Only Arm Abduction has been tried in front of a real camera so far.
+- **Depth** (Squats and Push-ups) is judged on the lowest point of each repetition, not on its worst frame: the app sends how many degrees the working joint stayed short of a right angle (0 at or past it), and the template's `depth` thresholds apply to that. The camera check of Push-ups asks for the wrists, because the elbow angle cannot be measured without them.
 
 Session summary, history and review (user stories 4.2, 5.1 and 5.2):
 
@@ -88,8 +89,9 @@ Limits to know about:
 - The live session has been tested with drawn body positions at known angles, in widget tests and against a real API and database. It has **not yet been tried in front of a real webcam**, so the counting angles (arm raised past 70 degrees, back below 30) and how often real tracking noise triggers feedback are unconfirmed.
 - The severity thresholds are provisional (see below), so the feedback is a demonstration of the mechanism, not clinical advice.
 - "Good repetition" (below the INFO threshold) is this project's addition; the user story names only RED, AMBER and INFO.
-- There is no form score yet (4.1 to 4.3), and the depth check of Squats and Push-ups is not measured.
+- There is no trained form score yet (4.1 to 4.3). The counting angles of every profile and the depth target of 90 degrees are starting values, not derived from REHAB24-6 or clinically reviewed.
 - Pose tracking is built for the web app only (the Android and iOS builds show a message instead); the pose model and its runtime are loaded from Google's and jsDelivr's servers when a session opens, so that needs an internet connection; and the frame rate on real hardware has not been measured yet.
+- If the camera shows but the camera check stays on "Looking for you…", the pose tracker is not producing frames. Open the browser console (F12): the tracker reports what went wrong there (lines starting with `[PhysioAI pose]`), and `physioPose.status()` shows how many frames it has sent and how many had a person in them. When pose detection keeps failing on the graphics card, it switches to the processor by itself.
 
 In-app notifications:
 
