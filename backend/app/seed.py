@@ -11,7 +11,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import audit, auth_service, clock, plan_service
+from app import audit, auth_service, clock, plan_service, rls
 from app.config import get_settings
 from app.db import get_engine
 from app.exercise_schemas import PlanCreate, PlanItemIn
@@ -83,7 +83,7 @@ def main() -> None:
     settings = get_settings()
     if settings.is_production:
         raise SystemExit("Refusing to seed demo accounts in production.")
-    with Session(get_engine()) as db:
+    with rls.as_system(Session(get_engine())) as db:
         _ensure(
             db, settings.seed_admin_name, settings.seed_admin_email, settings.seed_admin_password, Role.admin
         )
