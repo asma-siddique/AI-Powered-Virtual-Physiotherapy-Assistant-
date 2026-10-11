@@ -1,0 +1,7 @@
+# The REHAB24-6 training pipeline. Install into ml/.venv (see ml/README.md).
+numpy>=1.26
+mediapipe>=0.10.14
+opencv-python>=4.9
+torch>=2.3
+pytest>=8.3
+ruff>=0.6

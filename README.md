@@ -9,6 +9,7 @@ Patients do the exercises their physiotherapist assigns while the app tracks the
 | App (Android, iOS, Web) | Flutter, Riverpod, go_router | `frontend/` |
 | API | FastAPI, SQLAlchemy, Alembic | `backend/` |
 | Database | PostgreSQL (Supabase when hosted) | `backend/migrations/` |
+| Correctness model (REHAB24-6) | Python, MediaPipe, PyTorch | `ml/` (see `ml/README.md`) |
 
 ## What works today
 
