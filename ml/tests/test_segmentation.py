@@ -9,13 +9,19 @@ def test_the_real_file_format_is_read(tmp_path):
     path = tmp_path / "Segmentation.csv"
     # The first rows of the real file, as published.
     path.write_text(
-        "﻿"
+        "\ufeff"
         + HEADER
         + "\nPM_000;1;1;1;180;377;front;0;right arm;0;3;0;1"
-        + "\nPM_002;5;1;1;1000;1225;half-profile;0;right arm;0;2;0;0\n"
+        + "\nPM_002;5;1;1;1000;1225;half-profile;0;right arm;0;2;0;0\n",
+        encoding="utf-8",
     )
     first, second = read_segmentation(path)
-    assert (first.video_id, first.repetition, first.exercise, first.person) == ("PM_000", 1, "arm-abduction", 1)
+    assert (first.video_id, first.repetition, first.exercise, first.person) == (
+        "PM_000",
+        1,
+        "arm-abduction",
+        1,
+    )
     assert (first.first_frame, first.last_frame, first.correct) == (180, 377, True)
     assert (first.orientation, first.subtype, first.lights_on) == ("front", "right arm", False)
     assert second.correct is False and second.key == "PM_002#5"

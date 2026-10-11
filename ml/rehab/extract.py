@@ -47,7 +47,11 @@ def find_videos(root: Path, video_ids: Sequence[str]) -> dict[tuple[str, int], P
     files = [p for p in Path(root).rglob("*") if p.suffix.lower() in VIDEO_SUFFIXES]
     found: dict[tuple[str, int], Path | str] = {}
     for video_id in video_ids:
-        own = [p for p in files if re.search(rf"(?:^|[^A-Za-z0-9]){re.escape(video_id)}(?:[^A-Za-z0-9]|$)", str(p))]
+        own = [
+            p
+            for p in files
+            if re.search(rf"(?:^|[^A-Za-z0-9]){re.escape(video_id)}(?:[^A-Za-z0-9]|$)", str(p))
+        ]
         for camera in CAMERAS:
             pattern = _camera_pattern(camera)
             matches = [p for p in own if pattern.search(str(p.relative_to(root)).replace(video_id, ""))]
@@ -56,7 +60,9 @@ def find_videos(root: Path, video_ids: Sequence[str]) -> dict[tuple[str, int], P
             elif not matches:
                 found[(video_id, camera)] = "no file found"
             else:
-                found[(video_id, camera)] = f"{len(matches)} files match: " + ", ".join(p.name for p in matches)
+                found[(video_id, camera)] = f"{len(matches)} files match: " + ", ".join(
+                    p.name for p in matches
+                )
     return found
 
 
@@ -117,7 +123,9 @@ def track_video(path: Path, wanted: set[int], model: Path) -> tuple[np.ndarray, 
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--videos", type=Path, required=True)
     parser.add_argument("--segmentation", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)

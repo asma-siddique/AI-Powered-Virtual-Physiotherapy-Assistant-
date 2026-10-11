@@ -45,7 +45,9 @@ def frame_vector(pose: np.ndarray, *, aspect: float, slug: str) -> np.ndarray:
     out = np.full(len(CHANNELS), np.nan, dtype=np.float32)
     if not np.isfinite(pose[0, 0]):
         return out
-    landmarks = {name: (float(x), float(y), float(v)) for name, (x, y, v) in zip(LANDMARKS, pose, strict=True)}
+    landmarks = {
+        name: (float(x), float(y), float(v)) for name, (x, y, v) in zip(LANDMARKS, pose, strict=True)
+    }
     features = frame_features(
         landmarks,
         aspect_ratio=aspect,
@@ -119,7 +121,9 @@ def build(segmentation: Path, splits: Path, landmarks_dir: Path, steps: int = ST
     for path in files:
         by_video.setdefault(path.stem.rsplit("_c", 1)[0], []).append(path)
 
-    rows: dict[str, list] = {k: [] for k in ("x", "mask", "exercise", "label", "person", "split", "key", "camera")}
+    rows: dict[str, list] = {
+        k: [] for k in ("x", "mask", "exercise", "label", "person", "split", "key", "camera")
+    }
     skipped: Counter = Counter()
     for path in files:
         video_id, camera = path.stem.rsplit("_c", 1)
@@ -169,7 +173,9 @@ def build(segmentation: Path, splits: Path, landmarks_dir: Path, steps: int = ST
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--segmentation", type=Path, required=True)
     parser.add_argument("--splits", type=Path, required=True)
     parser.add_argument("--landmarks", type=Path, required=True)

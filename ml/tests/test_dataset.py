@@ -29,7 +29,9 @@ def test_frames_are_measured_with_the_apps_feature_code():
 
 
 def test_resampling_interpolates_what_was_measured_and_masks_the_rest():
-    series = np.array([[0.0, np.nan, np.nan], [90.0, np.nan, 10.0], [180.0, np.nan, np.nan]], dtype=np.float32)
+    series = np.array(
+        [[0.0, np.nan, np.nan], [90.0, np.nan, 10.0], [180.0, np.nan, np.nan]], dtype=np.float32
+    )
     values, mask = dataset.resample(series, steps=5)
     np.testing.assert_allclose(values[0] * 180, [0, 45, 90, 135, 180], atol=1e-4)
     assert mask[0].tolist() == [1, 1, 1, 1, 1]
@@ -50,7 +52,9 @@ def prepared(tmp_path):
     # Every video of person 1 (6 exercises, ids 0-5) from camera 17; the arm VW
     # video (id 1) is never used. One squat repetition has no pose at all.
     for video in range(6):
-        write_landmarks(landmarks / f"PM_{video:03d}_c17.npz", frames=100, missing=range(50, 90) if video == 5 else ())
+        write_landmarks(
+            landmarks / f"PM_{video:03d}_c17.npz", frames=100, missing=range(50, 90) if video == 5 else ()
+        )
     return segmentation, split_path, landmarks
 
 

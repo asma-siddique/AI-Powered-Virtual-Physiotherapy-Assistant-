@@ -16,7 +16,9 @@ HEADER = (
 EXERCISE_IDS = (1, 2, 3, 4, 5, 6)
 
 
-def write_segmentation(path: Path, people: int = 10, reps_per_video: int = 4, frames_per_rep: int = 40) -> Path:
+def write_segmentation(
+    path: Path, people: int = 10, reps_per_video: int = 4, frames_per_rep: int = 40
+) -> Path:
     """One video per person and exercise. Each video has `reps_per_video`
     repetitions; every person has correct and incorrect ones of everything."""
     lines = [HEADER]

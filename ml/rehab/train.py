@@ -81,13 +81,19 @@ def _build_model(channels: int, exercises: int, hidden: int, dropout: float):
 def _git_commit() -> str | None:
     try:
         return subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True, cwd=Path(__file__).parent
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=Path(__file__).parent,
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
 
 
-def train(data_path: Path, out_dir: Path, settings: dict | None = None, records_dir: Path | None = None) -> Path:
+def train(
+    data_path: Path, out_dir: Path, settings: dict | None = None, records_dir: Path | None = None
+) -> Path:
     import torch  # noqa: PLC0415
 
     settings = {**SETTINGS, **(settings or {})}
@@ -202,7 +208,9 @@ def train(data_path: Path, out_dir: Path, settings: dict | None = None, records_
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--records", type=Path, default=Path("model_records"))
