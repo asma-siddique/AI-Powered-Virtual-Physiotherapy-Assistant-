@@ -446,6 +446,17 @@ def test_a_set_beyond_the_prescription_is_refused(arm, db):
     assert arm.rep(1, set_number=3).status_code == 201
 
 
+def test_a_repetition_beyond_the_prescription_is_refused(arm, db):
+    # The app moves to the next set after the prescribed repetitions, so only a
+    # faulty client sends more. Refusing them also keeps a session within the
+    # 500 KB of US 8.2 (see test_data_minimization.py).
+    response = arm.rep(13)
+
+    assert response.status_code == 422 and response.json()["detail"]["code"] == "rep_out_of_range"
+    assert stored(db) == []
+    assert arm.rep(12).status_code == 201
+
+
 def test_another_patient_cannot_write_to_or_resume_the_session(arm, db, make):
     red = arm.rep(1, trunk_lean=24).json()
     stranger = bearer(sign_in(arm.client, make.patient_of(arm.physio)))

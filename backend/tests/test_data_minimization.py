@@ -16,7 +16,6 @@ import uuid
 from sqlalchemy import text
 
 from app.exercise_schemas import PlanItemIn
-from app.session_schemas import RepetitionIn
 from tests.test_repetitions import Arm
 from tests.test_sessions import SESSIONS
 
@@ -96,15 +95,12 @@ def test_the_largest_prescription_a_plan_allows_fits_under_500_kb(client, make, 
 
     session, repetitions = stored_bytes(db, arm.session_id)
     heaviest = max(repetitions)
+    # The API refuses a set or a repetition beyond the prescription
+    # (test_repetitions.py), so the largest plan is the largest session there can be.
     projected = session + max_sets * max_reps * heaviest
-    # For information only: the API itself takes up to this many repetitions
-    # in a set, more than any plan prescribes.
-    api_reps = upper_limit(RepetitionIn, "rep_number")
     print(
         f"\nHeaviest repetition: {heaviest:,} bytes. "
-        f"{max_sets} sets of {max_reps}: {projected:,} bytes. "
-        f"{max_sets} sets of {api_reps} (the API's own limit): "
-        f"{session + max_sets * api_reps * heaviest:,} bytes."
+        f"{max_sets} sets of {max_reps}, every repetition that heavy: {projected:,} bytes."
     )
 
     assert projected < LIMIT_BYTES

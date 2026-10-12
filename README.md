@@ -119,6 +119,14 @@ Row-level data isolation (user story 8.1):
 
 Tables without a policy, on purpose: `accounts`, `auth_sessions`, `login_attempts` and `invite_codes` (needed to work out who is asking in the first place), `exercise_templates` (the same for everyone), `audit_log`, and the model registry's three tables (nothing in them is about a patient). A name or email in `accounts` is therefore protected by the endpoints' checks only.
 
+Data minimization (user story 8.2):
+
+- **No pictures, ever.** The video stays in the browser and only joint positions leave it. The API has no way to receive a picture, and the database has no column that could hold one: `backend/tests/test_data_minimization.py` lists every binary column and fails if any appears other than the model registry's weights.
+- **What a session keeps.** The camera check's measurements, its own copy of the prescription and thresholds, and for each repetition the angles measured, its tier and feedback, and (when a classifier judged it) its probability. The frame-by-frame angles sent for the classifier are read and never stored.
+- **How much.** Measured by `pytest -s tests/test_data_minimization.py` (row data, indexes not counted): a typical session of 36 repetitions takes about 8.6 KB, and the largest plan allowed (10 sets of 50) at most about 253 KB, under the story's 500 KB per session. A repetition beyond the prescription is refused (`rep_out_of_range`), as a set beyond it already was, so no session can grow past the largest plan.
+- **The dataset.** REHAB24-6 is CC BY-NC 4.0 (academic, non-commercial). `ml/.gitignore` keeps the dataset, its landmarks and trained weights out of the repository.
+- **Not decided yet:** how long session data is kept (the retention rule of 8.2).
+
 The trained classifier and its registry (user stories 4.1 and 4.3):
 
 - **Training** is in `ml/` (see `ml/README.md`): REHAB24-6's videos are tracked with the app's own pose model and measured with the app's own feature code, split by subject (no person in more than one of train, validation and test), and a small 1-D CNN learns "correct" or "incorrect" per repetition. Every model has a record of exactly what it was trained on and how it scored on the held-out test subjects.
