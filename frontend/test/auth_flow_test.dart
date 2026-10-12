@@ -8,11 +8,13 @@ import 'package:physioai/app.dart';
 import 'package:physioai/core/alerts/desktop_alerts.dart';
 import 'package:physioai/core/api/api_client.dart';
 import 'package:physioai/core/api/api_exception.dart';
+import 'package:physioai/core/files/file_picker.dart';
 import 'package:physioai/core/files/file_saver.dart';
 import 'package:physioai/core/api/token_store.dart';
 import 'package:physioai/features/account/account_repository.dart';
 import 'package:physioai/features/admin/admin_repository.dart';
 import 'package:physioai/features/admin/exercise_library_repository.dart';
+import 'package:physioai/features/admin/scoring_models_repository.dart';
 import 'package:physioai/features/admin/user_management_repository.dart';
 import 'package:physioai/features/auth/auth_controller.dart';
 import 'package:physioai/features/auth/auth_models.dart';
@@ -1151,6 +1153,8 @@ Future<FakeAuthRepository> pumpApp(
   PoseSource? camera,
   FileSaver? saver,
   DesktopAlerts? alerts,
+  ScoringModelsRepository? models,
+  TextFilePicker? picker,
 }) async {
   tester.view.physicalSize = const Size(1400, 1100);
   tester.view.devicePixelRatio = 1;
@@ -1189,6 +1193,9 @@ Future<FakeAuthRepository> pumpApp(
           admin ?? FakeAdminRepository(),
         ),
         if (saver != null) fileSaverProvider.overrideWithValue(saver),
+        if (models != null)
+          scoringModelsRepositoryProvider.overrideWithValue(models),
+        if (picker != null) textFilePickerProvider.overrideWithValue(picker),
         if (alerts != null) desktopAlertsProvider.overrideWithValue(alerts),
         // The same clock everywhere the tests run: five hours ahead of UTC.
         deviceUtcOffsetProvider.overrideWithValue(300),

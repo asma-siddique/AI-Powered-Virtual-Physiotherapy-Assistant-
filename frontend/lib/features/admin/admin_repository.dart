@@ -69,6 +69,10 @@ class AuditEntry {
       "An admin edited an exercise's profile or thresholds",
     'exercise_template.activated' => 'An admin switched an exercise on',
     'exercise_template.deactivated' => 'An admin switched an exercise off',
+    'model.registered' => 'An admin registered a scoring model',
+    'model.evaluated' => 'An admin recorded an evaluation of a scoring model',
+    'model.promoted' => 'An admin promoted a scoring model to production',
+    'model.rolled_back' => 'An admin rolled back to an earlier scoring model',
     'auth.lockout' => 'Sign-in paused after repeated unsuccessful attempts',
     'auth.session_revoked' => 'Someone signed a device out of their account',
     'auth.refresh_token_reuse' =>

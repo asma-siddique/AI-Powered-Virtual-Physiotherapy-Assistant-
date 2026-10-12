@@ -52,6 +52,9 @@ EXEMPT = {
     "invite_codes": "looked up by a person who has no account yet",
     "exercise_templates": "the exercise library, the same for everyone",
     "audit_log": "written by every role; read only through the admin's endpoint",
+    "scoring_models": "which model scores sessions; nothing about any patient",
+    "model_evaluations": "results on the public dataset's held-out subjects, not on patients",
+    "model_promotions": "admins' decisions about models; nothing about any patient",
 }
 # The clinical tables: what a patient did and was prescribed.
 CLINICAL = [ExercisePlan, PlanExercise, ExerciseSession, SessionRepetition]

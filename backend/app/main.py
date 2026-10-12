@@ -15,6 +15,7 @@ from app.migrate import upgrade_to_head
 from app.routers import (
     admin,
     admin_exercises,
+    admin_models,
     admin_users,
     auth,
     notifications,
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     api.include_router(admin.router)
     api.include_router(admin_users.router)
     api.include_router(admin_exercises.router)
+    api.include_router(admin_models.router)
     api.include_router(physio_plans.router)
     api.include_router(physio_sessions.router)
     api.include_router(notifications.router)

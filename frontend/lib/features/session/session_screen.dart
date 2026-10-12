@@ -205,6 +205,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
           repsPerSet: requirements.reps,
           minVisibility: requirements.minVisibility,
           aspectRatio: _source.aspectRatio,
+          series: session.series,
         );
       });
       unawaited(_savePainBefore());

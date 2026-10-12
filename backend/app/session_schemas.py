@@ -84,6 +84,21 @@ class SessionTotals(BaseModel):
     red: int = 0
 
 
+# The most frames of one repetition the server reads: half a minute of video.
+MAX_SERIES_FRAMES = 900
+
+
+class SeriesSpec(BaseModel):
+    """What the session's classifier needs measured in every frame of a
+    repetition (US 4.1)."""
+
+    joints: list[str]
+    checks: list[str]
+    # The order of one frame's values: both sides of each joint, then each check.
+    channels: list[str]
+    max_frames: int
+
+
 class RepetitionIn(BaseModel):
     """One repetition the app counted. It carries measurements only: the
     server decides how serious they are."""
@@ -98,6 +113,21 @@ class RepetitionIn(BaseModel):
     # Check key -> worst value seen during the repetition, in the check's own
     # unit; null when the body parts it needs were not clearly in view.
     measures: dict[str, float | None] = Field(max_length=20)
+    # Only when the session asks for it (its `series`): what was measured in
+    # each frame of the repetition, one value per channel, null where it could
+    # not be measured. Read by the classifier and not stored.
+    frames: list[list[float | None]] | None = Field(default=None, min_length=2, max_length=MAX_SERIES_FRAMES)
+
+    @field_validator("frames")
+    @classmethod
+    def _usable_frames(cls, value: list[list[float | None]] | None) -> list[list[float | None]] | None:
+        for frame in value or []:
+            if len(frame) > 40:
+                raise ValueError("A frame has more values than any model reads.")
+            for measured in frame:
+                if measured is not None and (not math.isfinite(measured) or abs(measured) > 10_000):
+                    raise ValueError("A frame holds a value that is not a usable number.")
+        return value
 
     @field_validator("measures")
     @classmethod
@@ -128,6 +158,9 @@ class RepetitionOut(BaseModel):
     # active | paused
     session_status: str
     pause: PauseOut | None
+    # What the session's classifier made of it: true for "done correctly".
+    # None when no classifier judged this repetition.
+    judged_correct: bool | None = None
 
 
 class Acknowledge(BaseModel):
@@ -258,5 +291,8 @@ class SessionOut(BaseModel):
     checks: list[SeverityCheck]
     totals: SessionTotals
     pause: PauseOut | None
+    # Set while a classifier is to score this session: send these with every
+    # repetition. None when the rule scores it.
+    series: SeriesSpec | None = None
     # Set once the session has ended.
     summary: SessionSummary | None = None
