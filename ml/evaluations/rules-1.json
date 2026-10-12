@@ -1,0 +1,75 @@
+{
+  "model_version": "rules-1",
+  "eval_set": "REHAB24-6:test:db08126fe3508971:93fbdcddeda0965d",
+  "metrics": {
+    "repetitions": 366,
+    "agreement": 0.5136612021857924,
+    "balanced_accuracy": 0.5943026151930262,
+    "confusion": {
+      "correct_called_correct": 43,
+      "correct_called_incorrect": 177,
+      "incorrect_called_correct": 1,
+      "incorrect_called_incorrect": 145
+    },
+    "by_exercise": {
+      "arm-abduction": {
+        "repetitions": 82,
+        "agreement": 0.5487804878048781,
+        "balanced_accuracy": 0.5375,
+        "confusion": {
+          "correct_called_correct": 3,
+          "correct_called_incorrect": 37,
+          "incorrect_called_correct": 0,
+          "incorrect_called_incorrect": 42
+        }
+      },
+      "push-ups": {
+        "repetitions": 36,
+        "agreement": 0.6111111111111112,
+        "balanced_accuracy": 0.65,
+        "confusion": {
+          "correct_called_correct": 6,
+          "correct_called_incorrect": 14,
+          "incorrect_called_correct": 0,
+          "incorrect_called_incorrect": 16
+        }
+      },
+      "leg-abduction": {
+        "repetitions": 84,
+        "agreement": 0.6071428571428571,
+        "balanced_accuracy": 0.625,
+        "confusion": {
+          "correct_called_correct": 11,
+          "correct_called_incorrect": 33,
+          "incorrect_called_correct": 0,
+          "incorrect_called_incorrect": 40
+        }
+      },
+      "leg-lunge": {
+        "repetitions": 80,
+        "agreement": 0.5,
+        "balanced_accuracy": 0.5,
+        "confusion": {
+          "correct_called_correct": 1,
+          "correct_called_incorrect": 39,
+          "incorrect_called_correct": 1,
+          "incorrect_called_incorrect": 39
+        }
+      },
+      "squats": {
+        "repetitions": 84,
+        "agreement": 0.35714285714285715,
+        "balanced_accuracy": 0.6447368421052632,
+        "confusion": {
+          "correct_called_correct": 22,
+          "correct_called_incorrect": 54,
+          "incorrect_called_correct": 0,
+          "incorrect_called_incorrect": 8
+        }
+      }
+    },
+    "majority_baseline_agreement": 0.6010928961748634,
+    "meets_target": false,
+    "unmeasured_repetitions": 0
+  }
+}

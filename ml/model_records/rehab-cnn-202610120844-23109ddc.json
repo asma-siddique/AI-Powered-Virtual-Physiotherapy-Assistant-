@@ -1,0 +1,204 @@
+{
+  "model_version": "rehab-cnn-202610120844-23109ddc",
+  "created_at": "2026-10-12T08:44:58+00:00",
+  "task": "REHAB24-6 repetition correctness (1 correct, 0 incorrect)",
+  "architecture": "1-D CNN over resampled joint angles and checks, with mask and exercise",
+  "weights_sha256": "23109ddcf21a5ed90af53cf89dae1341aeb478b2925a583e40a38f7b919c9e37",
+  "training_data": {
+    "dataset": "REHAB24-6",
+    "segmentation_sha256": "72c70bc7e56eafb132452a850f7a56d21c3cb4a602bab1e98370f9b606567100",
+    "splits_sha256": "db08126fe3508971206c76e0116b41e69592203e00f548396e358248aa42f099",
+    "landmarks_sha256": "76cd2a5135dbf3e6da7259ec1ecdead57d08ba10f5ec5c3b391041d630c9ab96",
+    "dataset_sha256": "93fbdcddeda0965d3e9149a60a58a3e4283000962016d6057e35317e3643c6d5",
+    "examples": {
+      "train": 1010,
+      "val": 352,
+      "test": 366
+    },
+    "channels": [
+      "left_shoulder",
+      "right_shoulder",
+      "left_elbow",
+      "right_elbow",
+      "left_hip",
+      "right_hip",
+      "left_knee",
+      "right_knee",
+      "left_ankle",
+      "right_ankle",
+      "trunk_lean",
+      "elbow_bend",
+      "knee_bend",
+      "knee_valgus",
+      "knee_forward",
+      "hip_sag",
+      "depth"
+    ],
+    "steps": 32,
+    "exercises": [
+      "arm-abduction",
+      "push-ups",
+      "leg-abduction",
+      "leg-lunge",
+      "squats"
+    ]
+  },
+  "settings": {
+    "epochs": 80,
+    "batch_size": 32,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "hidden": 64,
+    "dropout": 0.3,
+    "seed": 2026
+  },
+  "chosen_epoch": 71,
+  "validation": {
+    "repetitions": 352,
+    "agreement": 0.7528409090909091,
+    "balanced_accuracy": 0.7461842105263158,
+    "confusion": {
+      "correct_called_correct": 159,
+      "correct_called_incorrect": 41,
+      "incorrect_called_correct": 46,
+      "incorrect_called_incorrect": 106
+    },
+    "by_exercise": {
+      "arm-abduction": {
+        "repetitions": 60,
+        "agreement": 0.8166666666666667,
+        "balanced_accuracy": 0.8166666666666667,
+        "confusion": {
+          "correct_called_correct": 29,
+          "correct_called_incorrect": 1,
+          "incorrect_called_correct": 10,
+          "incorrect_called_incorrect": 20
+        }
+      },
+      "push-ups": {
+        "repetitions": 42,
+        "agreement": 0.6904761904761905,
+        "balanced_accuracy": 0.7022727272727273,
+        "confusion": {
+          "correct_called_correct": 10,
+          "correct_called_incorrect": 12,
+          "incorrect_called_correct": 1,
+          "incorrect_called_incorrect": 19
+        }
+      },
+      "leg-abduction": {
+        "repetitions": 88,
+        "agreement": 0.7045454545454546,
+        "balanced_accuracy": 0.7029411764705882,
+        "confusion": {
+          "correct_called_correct": 48,
+          "correct_called_incorrect": 20,
+          "incorrect_called_correct": 6,
+          "incorrect_called_incorrect": 14
+        }
+      },
+      "leg-lunge": {
+        "repetitions": 80,
+        "agreement": 0.825,
+        "balanced_accuracy": 0.825,
+        "confusion": {
+          "correct_called_correct": 37,
+          "correct_called_incorrect": 3,
+          "incorrect_called_correct": 11,
+          "incorrect_called_incorrect": 29
+        }
+      },
+      "squats": {
+        "repetitions": 82,
+        "agreement": 0.7195121951219512,
+        "balanced_accuracy": 0.7232142857142857,
+        "confusion": {
+          "correct_called_correct": 35,
+          "correct_called_incorrect": 5,
+          "incorrect_called_correct": 18,
+          "incorrect_called_incorrect": 24
+        }
+      }
+    },
+    "majority_baseline_agreement": 0.5681818181818182,
+    "meets_target": false
+  },
+  "test": {
+    "repetitions": 366,
+    "agreement": 0.6065573770491803,
+    "balanced_accuracy": 0.601307596513076,
+    "confusion": {
+      "correct_called_correct": 138,
+      "correct_called_incorrect": 82,
+      "incorrect_called_correct": 62,
+      "incorrect_called_incorrect": 84
+    },
+    "by_exercise": {
+      "arm-abduction": {
+        "repetitions": 82,
+        "agreement": 0.6341463414634146,
+        "balanced_accuracy": 0.6375,
+        "confusion": {
+          "correct_called_correct": 31,
+          "correct_called_incorrect": 9,
+          "incorrect_called_correct": 21,
+          "incorrect_called_incorrect": 21
+        }
+      },
+      "push-ups": {
+        "repetitions": 36,
+        "agreement": 0.7777777777777778,
+        "balanced_accuracy": 0.78125,
+        "confusion": {
+          "correct_called_correct": 15,
+          "correct_called_incorrect": 5,
+          "incorrect_called_correct": 3,
+          "incorrect_called_incorrect": 13
+        }
+      },
+      "leg-abduction": {
+        "repetitions": 84,
+        "agreement": 0.6309523809523809,
+        "balanced_accuracy": 0.6352272727272728,
+        "confusion": {
+          "correct_called_correct": 24,
+          "correct_called_incorrect": 20,
+          "incorrect_called_correct": 11,
+          "incorrect_called_incorrect": 29
+        }
+      },
+      "leg-lunge": {
+        "repetitions": 80,
+        "agreement": 0.4875,
+        "balanced_accuracy": 0.48750000000000004,
+        "confusion": {
+          "correct_called_correct": 26,
+          "correct_called_incorrect": 14,
+          "incorrect_called_correct": 27,
+          "incorrect_called_incorrect": 13
+        }
+      },
+      "squats": {
+        "repetitions": 84,
+        "agreement": 0.5952380952380952,
+        "balanced_accuracy": 0.7763157894736843,
+        "confusion": {
+          "correct_called_correct": 42,
+          "correct_called_incorrect": 34,
+          "incorrect_called_correct": 0,
+          "incorrect_called_incorrect": 8
+        }
+      }
+    },
+    "majority_baseline_agreement": 0.6010928961748634,
+    "meets_target": false
+  },
+  "target_agreement": 0.85,
+  "meets_target_on_test": false,
+  "code_commit": "53517b2901b362d2ecc5420e70fc4c1271bf4dc6",
+  "environment": {
+    "python": "3.11.9",
+    "torch": "2.11.0+cpu"
+  },
+  "licence_note": "Trained on REHAB24-6 (CC BY-NC 4.0): academic, non-commercial use only."
+}
