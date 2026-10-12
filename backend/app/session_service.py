@@ -646,6 +646,15 @@ def record_repetition(
             "set_out_of_range",
             f"This exercise was prescribed with {session.sets} sets.",
         )
+    if sent.rep_number > session.reps:
+        # The app moves to the next set after the prescribed repetitions, so
+        # only a faulty client sends more. It also keeps one session within
+        # the 500 KB of US 8.2.
+        raise errors.ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "rep_out_of_range",
+            f"This exercise was prescribed with {session.reps} repetitions per set.",
+        )
 
     known = [check["key"] for check in session.checks]
     unknown = sorted(set(sent.measures) - set(known))
