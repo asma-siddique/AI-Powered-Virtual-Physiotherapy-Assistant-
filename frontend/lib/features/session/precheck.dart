@@ -192,6 +192,7 @@ class ExerciseSession {
     this.checks = const [],
     this.totals = const SessionTotals(),
     this.pause,
+    this.series,
     this.summary,
   });
 
@@ -207,6 +208,7 @@ class ExerciseSession {
         ],
         totals: SessionTotals.fromJson(json['totals'] as Map<String, dynamic>?),
         pause: SessionPause.fromJson(json['pause'] as Map<String, dynamic>?),
+        series: SeriesSpec.fromJson(json['series'] as Map<String, dynamic>?),
         summary: SessionSummary.fromJson(
           json['summary'] as Map<String, dynamic>?,
         ),
@@ -225,6 +227,10 @@ class ExerciseSession {
 
   /// Set while the session is paused on a RED repetition.
   final SessionPause? pause;
+
+  /// Set while a trained model is to score this session: what to send
+  /// with every repetition.
+  final SeriesSpec? series;
 
   /// What the session came to; set once it has ended.
   final SessionSummary? summary;

@@ -12,7 +12,17 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import audit, clock, errors, notifications, pose, scoring, severity
+from app import (
+    audit,
+    clock,
+    errors,
+    model_registry,
+    notifications,
+    pose,
+    pose_features,
+    scoring,
+    severity,
+)
 from app.config import get_settings
 from app.exercise_schemas import ExerciseBrief
 from app.models import (
@@ -25,6 +35,7 @@ from app.models import (
     SessionRepetition,
 )
 from app.session_schemas import (
+    MAX_SERIES_FRAMES,
     PainIn,
     PauseOut,
     PrecheckEvidence,
@@ -33,6 +44,7 @@ from app.session_schemas import (
     RepetitionDetail,
     RepetitionIn,
     RepetitionOut,
+    SeriesSpec,
     SessionBrief,
     SessionDetail,
     SessionOut,
@@ -192,20 +204,29 @@ def _close(db: Session, session: ExerciseSession, status_: str, patient: Account
     anything still waiting to be judged."""
     session.status = status_
     session.ended_at = clock.utcnow()
-    rows = [
-        (tier, measures)
-        for tier, measures in db.execute(
-            select(SessionRepetition.tier, SessionRepetition.measures).where(
-                SessionRepetition.session_id == session.id
-            )
+    rows = list(
+        db.execute(
+            select(
+                SessionRepetition.tier, SessionRepetition.measures, SessionRepetition.correct_probability
+            ).where(SessionRepetition.session_id == session.id)
         )
-    ]
-    counts = Counter(tier for tier, _ in rows)
+    )
+    counts = Counter(tier for tier, _, _ in rows)
     session.totals = SessionTotals(
         repetitions=len(rows), **{tier: counts.get(tier, 0) for tier in severity.TIERS}
     ).model_dump()
-    session.form_score, session.scored_repetitions = scoring.form_score(rows)
-    session.scoring_version = scoring.VERSION
+    judged = [probability for _, _, probability in rows if probability is not None]
+    if judged:
+        # The session's classifier judged these repetitions as they came in.
+        session.form_score, session.scored_repetitions = scoring.classifier_score(judged)
+    else:
+        # The rule scores it: it was the session's scorer from the start, or
+        # no repetition reached the classifier (the app sent no frames). The
+        # stored version always names what really produced the score.
+        session.form_score, session.scored_repetitions = scoring.form_score(
+            (tier, measures) for tier, measures, _ in rows
+        )
+        session.scoring_version = scoring.VERSION
     threshold = get_settings().flag_score_below
     if session.form_score is not None and session.form_score < threshold:
         session.flag_threshold = threshold
@@ -381,7 +402,26 @@ def to_out(db: Session, session: ExerciseSession) -> SessionOut:
         checks=session.checks,
         totals=totals(db, session.id),
         pause=_pause(db, session),
+        series=_series(db, session),
         summary=summary(db, session),
+    )
+
+
+def _series(db: Session, session: ExerciseSession) -> SeriesSpec | None:
+    """What the app has to send with each repetition for the session's
+    classifier; None when the rule scores the session or it has ended."""
+    if session.status not in UNDER_WAY:
+        return None
+    model = model_registry.classifier_of(db, session.scoring_version)
+    if model is None:
+        return None
+    sides = len(pose_features.SIDES)
+    joints = [name.removeprefix("left_") for name in model.channels if name.startswith("left_")]
+    return SeriesSpec(
+        joints=joints,
+        checks=list(model.channels[len(joints) * sides :]),
+        channels=list(model.channels),
+        max_frames=MAX_SERIES_FRAMES,
     )
 
 
@@ -434,6 +474,9 @@ def start(
         difficulty=item.difficulty.value,
         status=ACTIVE,
         started_at=now,
+        # Fixed here: promoting or rolling back a model later never changes
+        # how a session already under way is scored.
+        scoring_version=model_registry.scorer_for(db, template.slug),
         precheck={
             "brightness": evidence.brightness,
             "held_ms": evidence.held_ms,
@@ -463,6 +506,7 @@ def start(
             "exercise_template_id": str(template.id),
             "template_version": template.version,
             "prescription_revision": item.revision,
+            "scoring_version": session.scoring_version,
         },
         ip=ip,
     )
@@ -525,6 +569,11 @@ def _repetition_out(session: ExerciseSession, repetition: SessionRepetition) -> 
         unmeasured=[key for key, value in repetition.measures.items() if value is None],
         session_status=session.status,
         pause=_pause_of(repetition) if paused_by_this else None,
+        judged_correct=(
+            None
+            if repetition.correct_probability is None
+            else repetition.correct_probability >= scoring.CORRECT_FROM
+        ),
     )
 
 
@@ -536,6 +585,29 @@ def _same_repetition(stored: SessionRepetition, sent: RepetitionIn) -> bool:
         and stored.ended_ms == sent.ended_ms
         and stored.measures == sent.measures
     )
+
+
+def _judge(db: Session, session: ExerciseSession, sent: RepetitionIn) -> tuple[float | None, str | None]:
+    """How likely the session's classifier thinks the repetition correct, and
+    the model's version. (None, None) when the rule scores this session or
+    the app sent no frames. This never decides the tier or the safety pause:
+    those stay with the thresholds."""
+    if sent.frames is None:
+        return None, None
+    model = model_registry.classifier_of(db, session.scoring_version)
+    if model is None:
+        return None, None
+    if any(len(frame) != len(model.channels) for frame in sent.frames):
+        raise errors.ApiError(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "frames_malformed",
+            f"Every frame needs {len(model.channels)} values, in the order the session asks for.",
+        )
+    template = db.get(ExerciseTemplate, session.exercise_template_id)
+    probability = model.judge(sent.frames, template.slug)
+    if probability is None:
+        return None, None
+    return probability, session.scoring_version
 
 
 def record_repetition(
@@ -595,6 +667,7 @@ def record_repetition(
         )
 
     tier, feedback, _ = severity.classify(sent.measures, session.checks)
+    probability, judged_by = _judge(db, session, sent)
     repetition = SessionRepetition(
         id=uuid.uuid4(),
         session_id=session.id,
@@ -608,6 +681,8 @@ def record_repetition(
         tier=tier,
         feedback=feedback,
         created_at=clock.utcnow(),
+        correct_probability=probability,
+        model_version=judged_by,
     )
     db.add(repetition)
     if tier == severity.RED:

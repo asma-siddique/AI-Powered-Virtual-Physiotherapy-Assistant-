@@ -141,6 +141,40 @@ class RepetitionFeedback {
   final String message;
 }
 
+/// What the session's classifier needs measured in every frame of a
+/// repetition (US 4.1). Set by the server only while a trained model is to
+/// score the session; the rule needs nothing beyond the measures.
+class SeriesSpec {
+  const SeriesSpec({
+    required this.joints,
+    required this.checks,
+    required this.channels,
+    required this.maxFrames,
+  });
+
+  static SeriesSpec? fromJson(Map<String, dynamic>? json) => json == null
+      ? null
+      : SeriesSpec(
+          joints: [for (final joint in json['joints'] as List) joint as String],
+          checks: [for (final check in json['checks'] as List) check as String],
+          channels: [
+            for (final channel in json['channels'] as List) channel as String,
+          ],
+          maxFrames: json['max_frames'] as int,
+        );
+
+  /// The joints whose angle is measured on both sides.
+  final List<String> joints;
+  final List<String> checks;
+
+  /// The order of one frame's values: `left_shoulder`, `right_shoulder`, ...
+  /// then each check.
+  final List<String> channels;
+
+  /// The most frames of one repetition the server reads.
+  final int maxFrames;
+}
+
 /// One repetition the app has counted and is about to store.
 ///
 /// It carries what was measured, never a verdict: the server classifies the
@@ -152,6 +186,7 @@ class RepetitionDraft {
     required this.startedMs,
     required this.endedMs,
     Map<String, double?> measures = const {},
+    this.frames,
     String? clientKey,
   }) : measures = Map.unmodifiable(measures),
        clientKey = clientKey ?? newClientKey() {
@@ -186,6 +221,11 @@ class RepetitionDraft {
   /// it needs were not clearly in view, so nothing is guessed.
   final Map<String, double?> measures;
 
+  /// Only when the session asks for it ([SeriesSpec]): what was measured in
+  /// each frame of the repetition, one value per channel, null where it could
+  /// not be measured. The session's classifier reads it; it is not stored.
+  final List<List<double?>>? frames;
+
   Map<String, dynamic> toJson() => {
     'client_key': clientKey,
     'set_number': setNumber,
@@ -198,6 +238,14 @@ class RepetitionDraft {
             ? null
             : double.parse(entry.value!.toStringAsFixed(2)),
     },
+    if (frames != null)
+      'frames': [
+        for (final frame in frames!)
+          [
+            for (final value in frame)
+              value == null ? null : double.parse(value.toStringAsFixed(2)),
+          ],
+      ],
   };
 }
 
@@ -215,6 +263,7 @@ class RecordedRepetition {
     this.unmeasured = const [],
     this.sessionStatus = 'active',
     this.pause,
+    this.judgedCorrect,
   });
 
   factory RecordedRepetition.fromJson(Map<String, dynamic> json) =>
@@ -235,6 +284,7 @@ class RecordedRepetition {
         ],
         sessionStatus: json['session_status'] as String? ?? 'active',
         pause: SessionPause.fromJson(json['pause'] as Map<String, dynamic>?),
+        judgedCorrect: json['judged_correct'] as bool?,
       );
 
   final String id;
@@ -257,4 +307,7 @@ class RecordedRepetition {
 
   /// Set when this repetition paused the session.
   final SessionPause? pause;
+
+  /// What the session's classifier made of it; null when none judged it.
+  final bool? judgedCorrect;
 }

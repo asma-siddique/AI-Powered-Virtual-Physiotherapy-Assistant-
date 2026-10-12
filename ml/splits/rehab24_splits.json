@@ -1,0 +1,116 @@
+{
+  "dataset": "REHAB24-6",
+  "segmentation_sha256": "72c70bc7e56eafb132452a850f7a56d21c3cb4a602bab1e98370f9b606567100",
+  "rule": "subject-wise; 2 validation and 2 test subjects; both labels of every exercise in each; repetition share closest to 20% each; ties to the lowest subject numbers",
+  "subjects": {
+    "train": [
+      1,
+      3,
+      5,
+      8,
+      9,
+      10
+    ],
+    "val": [
+      6,
+      7
+    ],
+    "test": [
+      2,
+      4
+    ]
+  },
+  "summary": {
+    "train": {
+      "subjects": [
+        1,
+        3,
+        5,
+        8,
+        9,
+        10
+      ],
+      "repetitions": 505,
+      "by_exercise": {
+        "arm-abduction": {
+          "correct": 55,
+          "incorrect": 52
+        },
+        "push-ups": {
+          "correct": 31,
+          "incorrect": 37
+        },
+        "leg-abduction": {
+          "correct": 64,
+          "incorrect": 60
+        },
+        "leg-lunge": {
+          "correct": 38,
+          "incorrect": 56
+        },
+        "squats": {
+          "correct": 76,
+          "incorrect": 36
+        }
+      }
+    },
+    "val": {
+      "subjects": [
+        6,
+        7
+      ],
+      "repetitions": 176,
+      "by_exercise": {
+        "arm-abduction": {
+          "correct": 15,
+          "incorrect": 15
+        },
+        "push-ups": {
+          "correct": 11,
+          "incorrect": 10
+        },
+        "leg-abduction": {
+          "correct": 34,
+          "incorrect": 10
+        },
+        "leg-lunge": {
+          "correct": 20,
+          "incorrect": 20
+        },
+        "squats": {
+          "correct": 20,
+          "incorrect": 21
+        }
+      }
+    },
+    "test": {
+      "subjects": [
+        2,
+        4
+      ],
+      "repetitions": 183,
+      "by_exercise": {
+        "arm-abduction": {
+          "correct": 20,
+          "incorrect": 21
+        },
+        "push-ups": {
+          "correct": 10,
+          "incorrect": 8
+        },
+        "leg-abduction": {
+          "correct": 22,
+          "incorrect": 20
+        },
+        "leg-lunge": {
+          "correct": 20,
+          "incorrect": 20
+        },
+        "squats": {
+          "correct": 38,
+          "incorrect": 4
+        }
+      }
+    }
+  }
+}

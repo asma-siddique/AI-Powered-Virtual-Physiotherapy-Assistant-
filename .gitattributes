@@ -1,3 +1,9 @@
 # Shell scripts must keep Unix line endings, or bash cannot run them after a
 # checkout on Windows.
 *.sh text eol=lf
+
+# Files whose checksum is written into a model's record. They must be the
+# same bytes on every machine, so Git never converts their line endings.
+ml/splits/*.json -text
+ml/model_records/*.json -text
+ml/evaluations/*.json -text

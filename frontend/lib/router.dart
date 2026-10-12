@@ -7,6 +7,7 @@ import 'features/account/set_password_screen.dart';
 import 'features/admin/admin_pages.dart';
 import 'features/admin/exercise_form_page.dart';
 import 'features/admin/exercise_library_page.dart';
+import 'features/admin/scoring_models_page.dart';
 import 'features/admin/users_page.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_models.dart';
@@ -194,6 +195,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             ExerciseFormPage(exerciseId: state.pathParameters['id']),
           ),
         ),
+        page('/admin/models', const ScoringModelsPage()),
         soon(
           '/admin/feedback',
           'Patient Feedback',

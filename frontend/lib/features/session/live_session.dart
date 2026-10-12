@@ -18,6 +18,7 @@ class LiveSessionEngine {
     required this.repsPerSet,
     required this.minVisibility,
     required this.aspectRatio,
+    this.series,
   }) : checkKeys = List.unmodifiable(checkKeys),
        _counter = repProfiles[exerciseSlug] == null
            ? null
@@ -35,8 +36,16 @@ class LiveSessionEngine {
   /// Width over height of the camera picture; angles are skewed without it.
   final double aspectRatio;
 
+  /// Set when a trained model scores the session: every frame of a
+  /// repetition is then kept, measured the way the model was trained.
+  final SeriesSpec? series;
+
   final RepCounter? _counter;
   final _worst = <String, double>{};
+
+  /// One entry per frame of the repetition in progress, in the order of
+  /// [SeriesSpec.channels].
+  final _frames = <List<double?>>[];
 
   /// The lowest working-joint angle reached during the repetition, for the
   /// depth check: it is judged on the lowest point, not the worst frame.
@@ -71,6 +80,39 @@ class LiveSessionEngine {
   void _clearRep() {
     _worst.clear();
     _lowestDepth = null;
+    _frames.clear();
+  }
+
+  /// Keeps what the session's classifier reads from one frame.
+  void _keepFrame(PoseFrame frame) {
+    final spec = series;
+    if (spec == null) return;
+    final features = frameFeatures(
+      frame.landmarks,
+      aspectRatio: aspectRatio,
+      exerciseSlug: exerciseSlug,
+      targetJoints: spec.joints,
+      checkKeys: spec.checks,
+      minVisibility: minVisibility,
+    );
+    _frames.add([
+      for (final channel in spec.channels)
+        features.jointAngles[channel] ?? features.checks[channel],
+    ]);
+  }
+
+  /// The repetition's frames as they are sent: all of them, or evenly
+  /// thinned to the most the server reads. Null when the session does not
+  /// ask for them or there are too few to say anything.
+  List<List<double?>>? _framesToSend() {
+    final spec = series;
+    if (spec == null || _frames.length < 2) return null;
+    final count = _frames.length;
+    if (count <= spec.maxFrames) return List.of(_frames);
+    return [
+      for (var i = 0; i < spec.maxFrames; i++)
+        _frames[(i * (count - 1) / (spec.maxFrames - 1)).round()],
+    ];
   }
 
   /// What is sent for one check when a repetition ends. Most checks send the
@@ -144,6 +186,7 @@ class LiveSessionEngine {
     final wasInRep = counter.inRep;
     final rep = counter.add(sessionMs, angle);
     final measuring = counter.inRep || rep != null;
+    if (measuring) _keepFrame(frame);
 
     for (final key in checkKeys) {
       final value = features.checks[key];
@@ -173,6 +216,7 @@ class LiveSessionEngine {
       // Every check is accounted for; one that was never in view is null
       // rather than left out or guessed.
       measures: {for (final key in checkKeys) key: _measureOf(key)},
+      frames: _framesToSend(),
     );
     _clearRep();
     _repsInSet += 1;

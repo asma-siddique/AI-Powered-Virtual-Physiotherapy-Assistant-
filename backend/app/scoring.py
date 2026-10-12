@@ -1,10 +1,15 @@
 """The form score of a session (US 4.2).
 
-This is a transparent rule, not the trained classifier of US 4.1: until that
-model exists, a session is scored from the severity tier the server already
-stored for each repetition. Every score is saved together with the version of
-the rule that produced it, so when the classifier replaces this, old sessions
-still say how they were scored.
+Two things can produce it, and every score is saved with the version of the
+one that did:
+
+- the transparent rule below ("rules-1"), from the severity tier the server
+  stored for each repetition;
+- a trained classifier (US 4.1), once an admin has promoted one (US 4.3): the
+  share of the session's repetitions it judged to be done correctly.
+
+Which of them is to score a session is fixed when the session starts
+(app.model_registry).
 
 The points per tier are starting values chosen for this project. They have
 not been derived from REHAB24-6 or reviewed clinically.
@@ -19,6 +24,20 @@ VERSION = "rules-1"
 
 # What one repetition is worth, by its tier.
 POINTS = {severity.OK: 100, severity.INFO: 85, severity.AMBER: 55, severity.RED: 0}
+
+
+# A repetition counts as done correctly from this probability up; the same
+# cut the classifier is evaluated with (ml/rehab/train.py).
+CORRECT_FROM = 0.5
+
+
+def classifier_score(probabilities: Iterable[float]) -> tuple[int | None, int]:
+    """The score from 0 to 100 a classifier gives a session: the share of the
+    repetitions it judged that it found correct, and how many it judged."""
+    judged = [probability >= CORRECT_FROM for probability in probabilities]
+    if not judged:
+        return None, 0
+    return round(100 * sum(judged) / len(judged)), len(judged)
 
 
 def is_scorable(measures: Mapping[str, Any]) -> bool:

@@ -83,6 +83,13 @@ def _clean_tables() -> None:
     tables = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
     with get_engine().begin() as conn:
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        # What migration 0013 leaves behind: the rule is the production model.
+        conn.execute(
+            text(
+                "INSERT INTO scoring_models (version, kind, status, record, registered_at) "
+                "VALUES ('rules-1', 'rule', 'production', '{}', now())"
+            )
+        )
 
 
 @pytest.fixture

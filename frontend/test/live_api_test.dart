@@ -13,6 +13,7 @@ import 'package:physioai/core/api/token_store.dart';
 import 'package:physioai/features/admin/admin_repository.dart';
 import 'package:physioai/features/account/account_repository.dart';
 import 'package:physioai/features/admin/exercise_library_repository.dart';
+import 'package:physioai/features/admin/scoring_models_repository.dart';
 import 'package:physioai/features/admin/user_management_repository.dart';
 import 'package:physioai/features/auth/auth_models.dart';
 import 'package:physioai/features/auth/auth_repository.dart';
@@ -994,5 +995,65 @@ void main() {
     },
     skip: _live ? false : 'Needs a running API: see tool/live_api_test.sh',
     timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  test(
+    'the scoring model registry is read and guarded by the live API',
+    () async {
+      Matcher refusedWith(String code) =>
+          throwsA(isA<ApiException>().having((e) => e.code, 'code', code));
+      final adminApi = _client();
+      await AuthRepository(adminApi).signIn(
+        identifier: _adminEmail,
+        password: _adminPassword,
+        role: UserRole.admin,
+      );
+      final models = ScoringModelsRepository(adminApi);
+
+      // Something always scores sessions, and exactly one thing does.
+      final registry = await models.registry();
+      expect(registry.current.version, registry.production);
+      expect(registry.models.where((m) => m.isProduction), hasLength(1));
+      expect(registry.models.map((m) => m.version), contains('rules-1'));
+
+      // Nothing that is not a complete, evaluated model gets in. These
+      // leave nothing behind, so they are safe against any database.
+      await expectLater(
+        models.register({
+          'record': {'model_version': 'not-a-model'},
+          'splits': '{}',
+          'weights_b64': '',
+          'weights_sha256': 'a' * 64,
+        }),
+        refusedWith('record_incomplete'),
+      );
+      await expectLater(
+        models.promote('no-such-model', 'Checking the gate.'),
+        refusedWith('not_found'),
+      );
+      await expectLater(
+        models.addEvaluation({
+          'model_version': 'no-such-model',
+          'eval_set': 'REHAB24-6:test:none:none',
+          'metrics': {'agreement': 1.0, 'repetitions': 1},
+        }),
+        refusedWith('not_found'),
+      );
+      expect((await models.registry()).production, registry.production);
+
+      // The registry belongs to admins only.
+      final physioApi = _client();
+      await AuthRepository(physioApi).signIn(
+        identifier: _physioEmail,
+        password: _physioPassword,
+        role: UserRole.physiotherapist,
+      );
+      await expectLater(
+        ScoringModelsRepository(physioApi).registry(),
+        refusedWith('forbidden'),
+      );
+    },
+    skip: _live ? false : 'Needs a running API: see tool/live_api_test.sh',
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 }

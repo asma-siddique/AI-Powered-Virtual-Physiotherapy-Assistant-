@@ -48,6 +48,7 @@ const navigationByRole = <UserRole, List<NavItem>>{
       Icons.fitness_center_outlined,
       '/admin/exercises',
     ),
+    NavItem('Scoring Models', Icons.model_training_rounded, '/admin/models'),
     NavItem('Patient Feedback', Icons.rate_review_outlined, '/admin/feedback'),
     NavItem('Audit Log', Icons.history_rounded, '/admin/audit-log'),
   ],

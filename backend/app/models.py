@@ -11,10 +11,12 @@ from sqlalchemy import (
     Date,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Identity,
     Index,
     Integer,
+    LargeBinary,
     SmallInteger,
     String,
     Text,
@@ -23,7 +25,7 @@ from sqlalchemy import (
     text,
     true,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, deferred, mapped_column
 
 from app.db import Base
 
@@ -351,7 +353,9 @@ class ExerciseSession(Base):
     totals: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     form_score: Mapped[int | None] = mapped_column(Integer)
     scored_repetitions: Mapped[int | None] = mapped_column(Integer)
-    scoring_version: Mapped[str | None] = mapped_column(String(20))
+    # From the start of the session: the model that is to score it. A session
+    # keeps the model it started with, whatever is promoted meanwhile.
+    scoring_version: Mapped[str | None] = mapped_column(String(80))
     # Set when the session needs a physiotherapist's attention: a RED
     # repetition ("red") or a score below the threshold in force ("low_score").
     flagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -400,6 +404,10 @@ class SessionRepetition(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     # Set when the patient acknowledges the corrective message of a RED repetition.
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # How likely the session's classifier thought this repetition correct, 0
+    # to 1, and which model said so. Empty when no classifier judged it.
+    correct_probability: Mapped[float | None] = mapped_column(Float)
+    model_version: Mapped[str | None] = mapped_column(String(80))
 
 
 class Notification(Base):
@@ -418,3 +426,84 @@ class Notification(Base):
     link: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ScoringModel(Base):
+    """Something that can score a session: the transparent rule or a trained
+    classifier (US 4.1), with the record of how it was made. Exactly one is
+    the production model at any moment (US 4.3)."""
+
+    __tablename__ = "scoring_models"
+    __table_args__ = (
+        CheckConstraint("kind IN ('rule', 'classifier')", name="ck_scoring_models_kind"),
+        CheckConstraint("status IN ('candidate', 'production', 'retired')", name="ck_scoring_models_status"),
+        CheckConstraint(
+            "kind = 'rule' OR (weights IS NOT NULL AND weights_sha256 IS NOT NULL)",
+            name="ck_scoring_models_weights",
+        ),
+        Index(
+            "uq_scoring_models_production",
+            "status",
+            unique=True,
+            postgresql_where=text("status = 'production'"),
+        ),
+    )
+
+    version: Mapped[str] = mapped_column(String(80), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(12))
+    status: Mapped[str] = mapped_column(String(12))
+    # The training record as ml/ wrote it: data checksums, settings, results.
+    record: Mapped[dict[str, Any]] = mapped_column(JSON)
+    # Kept in the database, so going back to an earlier model needs no
+    # deployment. Loaded only when the model is run.
+    weights: Mapped[bytes | None] = deferred(mapped_column(LargeBinary))
+    weights_sha256: Mapped[str | None] = mapped_column(String(64))
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    registered_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+
+
+class ModelEvaluation(Base):
+    """One model scored against one held-out set. Never changed or deleted:
+    the database refuses (migration 0013)."""
+
+    __tablename__ = "model_evaluations"
+    __table_args__ = (
+        CheckConstraint("agreement BETWEEN 0 AND 1", name="ck_model_evaluations_agreement"),
+        Index("ix_model_evaluations_model", "model_version", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    model_version: Mapped[str] = mapped_column(ForeignKey("scoring_models.version"))
+    # Names the held-out set, so two models can be compared on the same one.
+    eval_set: Mapped[str] = mapped_column(String(160))
+    # Share of repetitions where the model agreed with the expert label.
+    agreement: Mapped[float] = mapped_column(Float)
+    balanced_accuracy: Mapped[float | None] = mapped_column(Float)
+    repetitions: Mapped[int] = mapped_column(Integer)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON)
+    # training_record | uploaded
+    source: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    recorded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+
+
+class ModelPromotion(Base):
+    """A decision to make a model the production one, or to go back to an
+    earlier one, with who decided and on what evidence. Never changed or
+    deleted."""
+
+    __tablename__ = "model_promotions"
+    __table_args__ = (
+        CheckConstraint("action IN ('promote', 'rollback')", name="ck_model_promotions_action"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    action: Mapped[str] = mapped_column(String(10))
+    model_version: Mapped[str] = mapped_column(ForeignKey("scoring_models.version"))
+    previous_version: Mapped[str | None] = mapped_column(ForeignKey("scoring_models.version"))
+    # Both models on the same held-out set; empty for a rollback.
+    evaluation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("model_evaluations.id"))
+    incumbent_evaluation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("model_evaluations.id"))
+    reason: Mapped[str] = mapped_column(String(300))
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
