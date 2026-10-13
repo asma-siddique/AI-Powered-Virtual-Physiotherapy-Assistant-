@@ -10,12 +10,14 @@ import '../../core/animations.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/voice/voice_coach.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/hologram/holo_figure.dart';
 import '../../core/widgets/ui_components.dart';
 import '../patient/patient_repository.dart';
 import '../shell/page_widgets.dart';
 import 'live_session.dart';
+import 'narrator.dart';
 import 'pain.dart';
 import 'pose/pose_models.dart';
 import 'pose/pose_source.dart';
@@ -59,6 +61,15 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
   SetupReading? _reading;
   CameraException? _cameraProblem;
   bool _cameraOn = false;
+
+  /// The camera has been starting for so long that a way to try again is
+  /// offered: no screen of this app waits for ever without one (US 9.2).
+  bool _cameraSlow = false;
+  Timer? _slowStart;
+
+  /// Goes up with every start, so a start that was given up on cannot
+  /// report its result over the one that replaced it.
+  int _cameraAttempt = 0;
 
   ExerciseSession? _session;
 
@@ -104,11 +115,18 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
   /// The session once it has ended, for the summary.
   ExerciseSession? _finished;
 
+  /// Reads the screen's guidance aloud for a patient standing back from it.
+  late final SessionNarrator _narrator;
+
   @override
   void initState() {
     super.initState();
     _cameraHold = ref.listenManual(poseSourceProvider, (_, _) {});
     _source = _cameraHold.read();
+    _narrator = SessionNarrator(
+      ref.read(voiceCoachProvider),
+      muted: () => ref.read(voiceMutedProvider),
+    );
     _requirements = ref.listenManual(
       precheckRequirementsProvider(widget.itemId),
       (_, next) {
@@ -123,8 +141,10 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
   void dispose() {
     _clock?.cancel();
     _retry?.cancel();
+    _slowStart?.cancel();
     _frames?.cancel();
     _requirements?.close();
+    _narrator.silence();
     // Letting go of the camera is what switches it off.
     _cameraHold.close();
     super.dispose();
@@ -135,17 +155,47 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     await _startCamera();
   }
 
+  /// How long the camera and the movement tracker may take to start before
+  /// the patient is offered a way to try again.
+  static const slowCameraAfter = Duration(seconds: 20);
+
   Future<void> _startCamera() async {
-    setState(() => _cameraProblem = null);
+    final attempt = ++_cameraAttempt;
+    setState(() {
+      _cameraProblem = null;
+      _cameraSlow = false;
+    });
+    _slowStart?.cancel();
+    _slowStart = Timer(slowCameraAfter, () {
+      if (mounted && attempt == _cameraAttempt && !_cameraOn) {
+        setState(() => _cameraSlow = true);
+      }
+    });
     try {
       await _source.start();
     } on CameraException catch (problem) {
-      if (mounted) setState(() => _cameraProblem = problem);
+      if (!mounted || attempt != _cameraAttempt) return;
+      _slowStart?.cancel();
+      setState(() {
+        _cameraProblem = problem;
+        _cameraSlow = false;
+      });
       return;
     }
-    if (!mounted) return;
-    setState(() => _cameraOn = true);
+    if (!mounted || attempt != _cameraAttempt) return;
+    _slowStart?.cancel();
+    setState(() {
+      _cameraOn = true;
+      _cameraSlow = false;
+    });
     _frames = _source.frames.listen(_onFrame);
+  }
+
+  /// Gives up on a start that is taking too long and begins again.
+  Future<void> _restartCamera() async {
+    _cameraAttempt++;
+    await _source.stop();
+    if (mounted) await _startCamera();
   }
 
   void _onFrame(PoseFrame frame) {
@@ -160,12 +210,36 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
           ? tracker.add(frame)
           : judgeSetup(frame, tracker.requirements);
     });
+    _speakGuidance(frame);
     if (_session == null &&
         tracker.ready &&
         !_starting &&
         _startError == null) {
       _start();
     }
+  }
+
+  /// Says where to stand: all through the camera check, and during the
+  /// session whenever the patient has drifted out of the camera's view.
+  void _speakGuidance(PoseFrame frame) {
+    final reading = _reading;
+    if (reading == null || _finished != null || _ending) return;
+    if (_session == null) {
+      if (_startError == null) {
+        _narrator.guidance(reading.guidance, frame.timeMs);
+      }
+    } else if (_pause == null && _stopped == null) {
+      _narrator.guidance(
+        reading.ok ? null : reading.guidance ?? 'Step back into view.',
+        frame.timeMs,
+      );
+    }
+  }
+
+  void _toggleVoice() {
+    final muted = !ref.read(voiceMutedProvider);
+    ref.read(voiceMutedProvider.notifier).state = muted;
+    if (muted) _narrator.silence();
   }
 
   /// Sends the pain rating chosen before the session, if there is one.
@@ -208,6 +282,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
           series: session.series,
         );
       });
+      _narrator.started(requirements);
       unawaited(_savePainBefore());
       _clock = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _elapsed += const Duration(seconds: 1));
@@ -284,6 +359,10 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
             _understood = false;
           }
         });
+        final requirements = _tracker?.requirements;
+        if (requirements != null) {
+          _narrator.repetition(stored, requirements: requirements);
+        }
       } on ApiException catch (error) {
         if (!mounted) return;
         if (error.code == ApiException.network.code) {
@@ -357,6 +436,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
         _understood = false;
         _lastStored = null;
       });
+      _narrator.resumed();
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -417,6 +497,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
         _ending = false;
         _finished = ended;
       });
+      _narrator.finished(ended);
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() => _ending = false);
@@ -558,6 +639,22 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
                     ],
                   ),
           ),
+          if (!finished && ref.watch(voiceCoachProvider).supported) ...[
+            const SizedBox(width: 4),
+            IconButton(
+              key: const Key('voice-toggle'),
+              onPressed: _toggleVoice,
+              color: Colors.white,
+              tooltip: ref.watch(voiceMutedProvider)
+                  ? 'Turn the spoken coach on'
+                  : 'Turn the spoken coach off',
+              icon: Icon(
+                ref.watch(voiceMutedProvider)
+                    ? Icons.volume_off_rounded
+                    : Icons.volume_up_rounded,
+              ),
+            ),
+          ],
           const SizedBox(width: 12),
           if (finished)
             const Pill.success('Session complete', icon: Icons.check_rounded)
@@ -690,24 +787,57 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
                       ),
                       Align(
                         alignment: const Alignment(0, 0.9),
-                        child: Row(
+                        child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Colors.white,
-                              ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Starting your camera…',
+                                  style: AppTheme.bodyLarge.copyWith(
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 12),
-                            Text(
-                              'Starting your camera…',
-                              style: AppTheme.bodyLarge.copyWith(
-                                color: Colors.white,
+                            if (_cameraSlow) ...[
+                              const SizedBox(height: 10),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                ),
+                                child: Text(
+                                  'This is taking longer than usual. The '
+                                  'movement tracker is still loading; a slow '
+                                  'connection can cause this.',
+                                  key: const Key('camera-slow'),
+                                  textAlign: TextAlign.center,
+                                  style: AppTheme.bodyMedium.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.8),
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(height: 8),
+                              OutlinedButton(
+                                key: const Key('camera-slow-retry'),
+                                onPressed: _restartCamera,
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(color: Colors.white),
+                                ),
+                                child: const Text('Try again'),
+                              ),
+                            ],
                           ],
                         ),
                       ),

@@ -101,3 +101,129 @@ def test_seed_without_the_starter_exercises_still_creates_the_accounts(db, make,
 
     assert len(db.execute(select(Account)).all()) == 3
     assert plans(db) == []
+
+
+# --- Test patients (python -m app.seed --test-patients) ------------------------
+
+
+def test_test_patients_are_only_created_when_asked_for(db, make, demo):
+    make.exercise("Squats")
+
+    seed.main([])
+
+    assert len(db.execute(select(Account)).all()) == 3
+
+
+def test_each_test_patient_gets_every_exercise_that_is_switched_on(client, db, make, demo):
+    for name in ("Arm Abduction", "Leg Lunge", "Squats"):
+        make.exercise(name)
+    make.exercise("Wall Sit", active=False)
+
+    seed.main(["--test-patients"])
+
+    emails = [email for _, email in seed.TEST_PATIENTS]
+    accounts = {a.email: a for a in db.execute(select(Account)).scalars()}
+    assert set(emails) <= set(accounts)
+    assert len(accounts) == 3 + len(emails)
+    first_exercises = []
+    for email in emails:
+        # They sign in with the demo patient's password and see their plan.
+        signed_in = client.post(
+            "/api/v1/auth/login",
+            json={"identifier": email, "password": demo["seed_patient_password"]},
+        )
+        assert signed_in.status_code == 200, signed_in.text
+        assert signed_in.json()["physiotherapist"]["full_name"] == get_settings().seed_physio_name
+        plan = client.get("/api/v1/patient/plan", headers=bearer(signed_in.json())).json()
+        assert plan["name"] == seed.TEST_PLAN_NAME
+        names = [item["exercise"]["name"] for item in plan["items"]]
+        assert sorted(names) == ["Arm Abduction", "Leg Lunge", "Squats"]
+        assert {(item["sets"], item["reps"]) for item in plan["items"]} == {(seed.TEST_SETS, seed.TEST_REPS)}
+        first_exercises.append(names[0])
+    # Each starts from a different exercise, in turn.
+    assert first_exercises[:3] == ["Arm Abduction", "Leg Lunge", "Squats"]
+
+
+def test_creating_the_test_patients_again_changes_nothing(db, make, demo):
+    make.exercise("Squats")
+
+    seed.main(["--test-patients"])
+    seed.main(["--test-patients"])
+
+    assert len(db.execute(select(Account)).all()) == 3 + len(seed.TEST_PATIENTS)
+    assert len(plans(db)) == 1 + len(seed.TEST_PATIENTS)
+
+
+# --- The team's admin accounts (python -m app.seed --team) ---------------------
+
+
+@pytest.fixture
+def team(monkeypatch, demo) -> list[str]:
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings,
+        "seed_team_admins",
+        "Asma Siddique <Asma@Team.Test>, Dure Sameen<dure@team.test>,  , not an address",
+    )
+    monkeypatch.setattr(settings, "seed_team_password", "Team-Pass-1")
+    monkeypatch.setattr(settings, "seed_test_patient_password", "Easy-Pass-1")
+    return ["asma@team.test", "dure@team.test"]
+
+
+def can_sign_in(client, email: str, password: str, role: str) -> bool:
+    response = client.post(
+        "/api/v1/auth/login", json={"identifier": email, "password": password, "role": role}
+    )
+    return response.status_code == 200
+
+
+def test_the_team_gets_an_admin_account_each(client, db, make, team):
+    seed.main(["--team"])
+
+    accounts = {a.email: a for a in db.execute(select(Account)).scalars()}
+    # The two people named properly; the entry that is not an address is left out.
+    assert len(accounts) == 3 + 2
+    for email in team:
+        assert accounts[email].role == Role.admin
+        assert can_sign_in(client, email, "Team-Pass-1", "admin")
+    assert accounts["asma@team.test"].full_name == "Asma Siddique"
+
+
+def test_team_admins_are_only_created_when_asked_for(db, make, team):
+    seed.main([])
+
+    assert len(db.execute(select(Account)).all()) == 3
+
+
+def test_test_patients_use_their_own_password_when_one_is_set(client, db, make, team):
+    make.exercise("Squats")
+
+    seed.main(["--test-patients"])
+
+    email = seed.TEST_PATIENTS[0][1]
+    assert can_sign_in(client, email, "Easy-Pass-1", "patient")
+    assert not can_sign_in(client, email, "Demo-Patient-1", "patient")
+
+
+def test_passwords_of_team_and_test_accounts_can_be_reset_from_the_settings(
+    client, db, make, team, monkeypatch
+):
+    make.exercise("Squats")
+    seed.main(["--team", "--test-patients"])
+    settings = get_settings()
+    monkeypatch.setattr(settings, "seed_team_password", "Team-Pass-2")
+    monkeypatch.setattr(settings, "seed_test_patient_password", "Easy-Pass-2")
+    patient = seed.TEST_PATIENTS[0][1]
+
+    # Without being asked to, the seed leaves existing passwords alone.
+    seed.main(["--team", "--test-patients"])
+    assert can_sign_in(client, team[0], "Team-Pass-1", "admin")
+
+    seed.main(["--team", "--test-patients", "--reset-passwords"])
+
+    assert can_sign_in(client, team[0], "Team-Pass-2", "admin")
+    assert can_sign_in(client, patient, "Easy-Pass-2", "patient")
+    assert not can_sign_in(client, team[0], "Team-Pass-1", "admin")
+    # The demo accounts' passwords are never touched by a reset.
+    assert can_sign_in(client, "admin@demo.test", "Demo-Admin-1", "admin")
+    assert can_sign_in(client, "patient@demo.test", "Demo-Patient-1", "patient")

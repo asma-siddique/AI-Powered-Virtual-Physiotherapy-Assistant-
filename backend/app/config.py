@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     seed_patient_name: str = "Jane Cooper"
     seed_patient_email: str | None = None
     seed_patient_password: str | None = None
+    # The team's own admin accounts (`python -m app.seed --team`): one
+    # "Full Name <email>" per person, separated by commas, with one password.
+    seed_team_admins: str = ""
+    seed_team_password: str | None = None
+    # The test patients' password (`--test-patients`); the demo patient's
+    # when not set.
+    seed_test_patient_password: str | None = None
 
     @property
     def is_production(self) -> bool:

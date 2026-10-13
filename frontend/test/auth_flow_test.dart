@@ -11,6 +11,7 @@ import 'package:physioai/core/api/api_exception.dart';
 import 'package:physioai/core/files/file_picker.dart';
 import 'package:physioai/core/files/file_saver.dart';
 import 'package:physioai/core/api/token_store.dart';
+import 'package:physioai/core/voice/voice_coach.dart';
 import 'package:physioai/features/account/account_repository.dart';
 import 'package:physioai/features/admin/admin_repository.dart';
 import 'package:physioai/features/admin/exercise_library_repository.dart';
@@ -1139,6 +1140,31 @@ class FakeConsentRepository implements ConsentRepository {
   }
 }
 
+/// Stands in for the device's voice: keeps what the app asked it to say.
+class FakeVoiceCoach implements VoiceCoach {
+  final lines = <({String text, Urgency urgency, CoachTone? tone})>[];
+  int stops = 0;
+
+  /// Just the words, in the order they were said.
+  List<String> get said => [for (final line in lines) line.text];
+
+  @override
+  bool get supported => true;
+
+  @override
+  void say(
+    String text, {
+    Urgency urgency = Urgency.background,
+    CoachTone? tone,
+  }) => lines.add((text: text, urgency: urgency, tone: tone));
+
+  @override
+  void stop() => stops += 1;
+}
+
+/// The voice of the app most recently started by [pumpApp].
+late FakeVoiceCoach spokenCoach;
+
 Future<FakeAuthRepository> pumpApp(
   WidgetTester tester, {
   FakeAuthRepository? auth,
@@ -1155,6 +1181,7 @@ Future<FakeAuthRepository> pumpApp(
   DesktopAlerts? alerts,
   ScoringModelsRepository? models,
   TextFilePicker? picker,
+  FakeVoiceCoach? voice,
 }) async {
   tester.view.physicalSize = const Size(1400, 1100);
   tester.view.devicePixelRatio = 1;
@@ -1193,6 +1220,9 @@ Future<FakeAuthRepository> pumpApp(
           admin ?? FakeAdminRepository(),
         ),
         if (saver != null) fileSaverProvider.overrideWithValue(saver),
+        voiceCoachProvider.overrideWithValue(
+          spokenCoach = voice ?? FakeVoiceCoach(),
+        ),
         if (models != null)
           scoringModelsRepositoryProvider.overrideWithValue(models),
         if (picker != null) textFilePickerProvider.overrideWithValue(picker),
