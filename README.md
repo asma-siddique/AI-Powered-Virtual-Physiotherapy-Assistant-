@@ -90,7 +90,7 @@ Limits to know about:
 - The severity thresholds are provisional (see below), so the feedback is a demonstration of the mechanism, not clinical advice.
 - "Good repetition" (below the INFO threshold) is this project's addition; the user story names only RED, AMBER and INFO.
 - **The trained model does not meet its target yet.** The first model trained on the real dataset (`rehab-cnn-202610120844-23109ddc`, 12 Oct 2026) agrees with the expert labels on **60.7%** of the 366 held-out test repetitions (balanced accuracy 60.1%), where always answering "correct" would score 60.1%. **The 85% target is not met.** It scored 95.6% on the people it was trained on and 75.3% on the validation subjects, so it has learnt the training subjects rather than the movement: there are only 5 full training subjects. The app's rule (`rules-1`) scores 51.4% on the same repetitions (balanced 59.4%): it calls 177 of the 220 correct repetitions incorrect, which says the shipped thresholds are too strict for what the camera really measures. Neither is good enough to rely on; the rule stays in production and this model has not been promoted. The counting angles of every profile and the depth target of 90 degrees are starting values, not derived from REHAB24-6 or clinically reviewed.
-- Pose tracking is built for the web app only (the Android and iOS builds show a message instead); the pose model and its runtime are loaded from Google's and jsDelivr's servers when a session opens, so that needs an internet connection; and the frame rate on real hardware has not been measured yet.
+- Pose tracking is built for the web app only (the Android and iOS builds show a message instead); the pose model and its runtime (about 15 MB) are loaded when a session opens: from a copy next to the app when `tool/fetch_pose_assets.sh` has been run (no internet needed, about 2 seconds), otherwise from Google's and jsDelivr's servers, which needs an internet connection and took over a minute on a slow one; and the frame rate on real hardware has not been measured yet.
 - If the camera shows but the camera check stays on "Looking for you…", the pose tracker is not producing frames. Open the browser console (F12): the tracker reports what went wrong there (lines starting with `[PhysioAI pose]`), and `physioPose.status()` shows how many frames it has sent and how many had a person in them. When pose detection keeps failing on the graphics card, it switches to the processor by itself.
 
 In-app notifications:
@@ -142,7 +142,28 @@ The trained classifier and its registry (user stories 4.1 and 4.3):
 
 The severity thresholds that ship with the five exercises are provisional starting values. They have not yet been derived from the REHAB24-6 labels or reviewed clinically; see the note at the top of `backend/migrations/versions/0003_exercise_templates_and_plans.py`.
 
-Not built yet: push notifications, chat and feedback, and the rest of epic 8 (data retention in 8.2, an append-only audit log in 8.3).
+The spoken coach (asked for after trying a session from a distance):
+
+- During a session the app **speaks**: where to stand during the camera check, the exercise and its instructions at the start, each repetition's count, the correction for a repetition that needs one, the end of each set with how long to rest, and the summary. It is the browser's own speech (`web/voice_bridge.js`); nothing is downloaded or recorded.
+- **Alert tones.** An AMBER repetition sounds two short beeps before its correction. A RED repetition sounds an alarm and says "Stop", cutting off whatever was being said. A set or session that completes sounds a chime.
+- The coach adds nothing of its own: every correction it speaks is the server's message for a repetition the server has stored and judged (`lib/features/session/narrator.dart`). The same small correction on repetition after repetition is said the first time and then on every third.
+- A speaker button on the session screen switches it off and on. On a device that cannot speak the button is not shown and the session works as before.
+- Not checked by ear: the tests check what the app asks the voice to say and which tone goes with it, not how it sounds on a given laptop. A RED pause still has to be confirmed on the screen.
+
+The audit log (user story 8.3):
+
+- Template edits and threshold changes (with the old and new values), switching an exercise on or off, role changes, moving a patient to another physiotherapist, plan assignment and prescription edits are each recorded with who did it, when, and what changed. A refused action leaves no entry.
+- **Append-only, in the database.** A trigger on `audit_log` refuses every UPDATE and DELETE, whoever asks: an admin, a physiotherapist, a patient or the API itself (migration 0014; `tests/test_audit_log.py` tries each). The API has no endpoint that edits or deletes an entry.
+- The database's owner can still empty a table with TRUNCATE (the tests do, between cases). The API's own role is not allowed to.
+
+Graceful degradation (user story 9.2):
+
+- **A dropped connection loses no repetition.** Repetitions counted while the server cannot be reached wait in order and are sent again every two seconds with the same key, so each is stored exactly once when the connection returns. The count on screen keeps up meanwhile and a notice says the last repetition is not saved yet. `test/degradation_test.dart` holds this for a full minute without a connection.
+- **Nothing waits for ever without a retry.** Every request gives up after 20 seconds and every loading state has "Try again". The one screen that could hang, "Starting your camera…", now offers a retry after 20 seconds.
+- **Performance budget:** each request the Home, My Plan and live-session screens make must be answered within 300 ms, and ending a session with its summary within 3 seconds. `tests/test_performance.py` measures this inside the API for a patient with 30 past sessions.
+- Not done: the queue of unsent repetitions lives in the open page, so closing the tab while offline loses what was not yet sent. Feedback and the RED pause come from the server, so they arrive only once the connection is back. Load times on a real mobile connection and the 99% uptime target need the hosted demo, which does not exist yet.
+
+Not built yet: push notifications, chat and feedback, and a hosted demo environment.
 
 ## Run it locally
 
@@ -173,11 +194,17 @@ flutter pub get
 flutter run -d chrome
 ```
 
+Run `tool/fetch_pose_assets.sh` once (from `frontend/`, in Git Bash) before a demo. It downloads the pose tracker (MediaPipe Tasks Vision and the pose model, both Apache-2.0, about 25 MB, kept out of the repository) into `web/pose/`. With it, a session starts without the internet; without it, the app downloads the same files every time a session opens. `physioPose.status().loadedFrom` in the browser console says which was used.
+
 The app talks to `http://localhost:8000/api/v1` by default. To point it elsewhere, add `--dart-define=API_BASE_URL=https://your-host/api/v1`.
 
 ### Demo accounts
 
 `python -m app.seed` creates one admin, one physiotherapist and one patient. Their emails and passwords are the `SEED_*` values in `backend/.env` (copied from `.env.example`). They are for local development only; the seed refuses to run when `ENVIRONMENT=production`.
+
+`python -m app.seed --test-patients` also creates five test patients of the demo physiotherapist (`ali`, `sara`, `bilal`, `hina` and `usman`, each `@physioai.test`), who sign in with `SEED_TEST_PATIENT_PASSWORD`. Each has a plan with every exercise that is switched on, 2 sets of 5, starting from a different exercise, so all the exercises can be tried without editing anybody's plan. Running it again changes nothing.
+
+`python -m app.seed --team` creates an admin account for each person in `SEED_TEAM_ADMINS` (written as `Full Name <email>`, separated by commas), all with `SEED_TEAM_PASSWORD`. Add `--reset-passwords` to set the passwords of team and test accounts that already exist to the values now in `.env`; no other account's password is touched. These are simple passwords for local development only.
 
 To try registration: sign in as the physiotherapist, press **Generate Invite Code**, sign out, then use that code on **Create your account**.
 
@@ -193,6 +220,15 @@ cd frontend && bash tool/live_api_test.sh # the app's real repositories against 
 `pytest` starts its own temporary embedded PostgreSQL. To use another server instead, set `TEST_DATABASE_URL` to a database whose name contains `test` (the suite drops and recreates its schema).
 
 `tool/live_api_test.sh` starts a throwaway API with its own empty database (`python -m app.throwaway`), runs the end-to-end test against it and removes everything afterwards, so your development data is never touched. To run it against an API that is already running instead, set `API_BASE_URL`; that leaves a test patient and a test exercise behind.
+
+## CI/CD (user story 9.1)
+
+Every pull request, and every push to `dev` or `main`, runs `.github/workflows/ci.yml`: lint, format check and the tests of the API (against a real PostgreSQL) and of the app. A run takes under two minutes. A newer push replaces the run before it.
+
+Two things have to be switched on in the repository's settings by an owner; the workflow cannot do them itself:
+
+1. **A failing check blocks merging, and nothing reaches `main` or `dev` without review.** Settings > Branches > Add branch ruleset (or "Add rule"), for `main` and again for `dev`: require a pull request before merging with 1 approval, require status checks to pass and pick "Backend (lint + tests)" and "Frontend (analyze + tests)", and do not allow bypassing. Until this is set, GitHub shows the checks but still lets a red pull request be merged, and still accepts a direct push.
+2. **Deploying the demo.** The `deploy-demo` job runs after the checks pass on `main`, but only once the repository variable `DEPLOY_DEMO` is `true`. It builds the web app (with the pose tracker included) and publishes it with GitHub Pages; choose "GitHub Actions" as the source under Settings > Pages and set the variable `API_BASE_URL` to the demo API's address. If the secret `BACKEND_DEPLOY_HOOK_URL` is set (a deploy hook of the host the API runs on, such as Render), it is called first so the API is redeployed from `main` too. No host for the API has been chosen yet, so this job has never run.
 
 ## Using Supabase
 

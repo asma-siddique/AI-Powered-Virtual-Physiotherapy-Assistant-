@@ -6,6 +6,12 @@ on:
     # dev is where finished work is collected; main is what is deployed.
     branches: [dev, main]
 
+# A newer push to the same branch or pull request replaces the run before it,
+# so checks never queue up behind ones nobody is waiting for.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     name: Backend (lint + tests)
@@ -55,3 +61,51 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test
+
+  # US 9.1: what is merged to main, and has passed every check above, goes to
+  # the demo environment by itself. Nothing is published until the team
+  # switches this on: set the repository variable DEPLOY_DEMO to "true"
+  # (Settings > Secrets and variables > Actions > Variables), set
+  # API_BASE_URL to the demo API's address, and choose "GitHub Actions" as the
+  # source under Settings > Pages. See "CI/CD" in the README.
+  deploy-demo:
+    name: Deploy the demo (main only)
+    needs: [backend, frontend]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && vars.DEPLOY_DEMO == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    env:
+      # Kept as a secret because whoever has it can redeploy the API.
+      BACKEND_DEPLOY_HOOK_URL: ${{ secrets.BACKEND_DEPLOY_HOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      # The API first, so the app is never ahead of what it talks to. The
+      # host redeploys from main when its deploy hook is called.
+      - name: Deploy the API
+        if: env.BACKEND_DEPLOY_HOOK_URL != ''
+        run: curl --fail --silent --show-error -X POST "$BACKEND_DEPLOY_HOOK_URL" > /dev/null
+      - name: Build the web app
+        working-directory: frontend
+        run: |
+          flutter pub get
+          # The pose tracker is served with the app, so a session starts
+          # without waiting on another server.
+          bash tool/fetch_pose_assets.sh
+          flutter build web --release             --base-href "/${{ github.event.repository.name }}/"             --dart-define=API_BASE_URL="${{ vars.API_BASE_URL }}"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/build/web
+      - id: pages
+        uses: actions/deploy-pages@v4
