@@ -13,6 +13,12 @@ const POSE_MODEL =
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/' +
   'pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 
+// A copy of both kept next to the app (web/pose/, made by
+// tool/fetch_pose_assets.sh) is used when it is there: a session then starts
+// without the internet and without waiting on a slow connection.
+const LOCAL_POSE = new URL('pose/', document.baseURI).href;
+const LOCAL_VERSION = '0.10.14';
+
 const LANDMARKS = 33;
 // Brightness is cheap to estimate but not free: once every few frames is enough.
 const BRIGHTNESS_EVERY = 6;
@@ -95,19 +101,52 @@ function report(kind, error) {
 
 let vision = null;
 let files = null;
+// Where the tracker was loaded from: 'this device' or 'the internet'.
+let loadedFrom = null;
+let modelPath = POSE_MODEL;
+
+// True when a complete local copy of the right version sits next to the app.
+// Anything else (no copy, an older one, a server that answers every path with
+// the app's own page) means the internet is used, as before.
+async function hasLocalCopy() {
+  try {
+    const response = await fetch(`${LOCAL_POSE}manifest.json`, { cache: 'no-cache' });
+    if (!response.ok) return false;
+    return (await response.json()).tasks_vision === LOCAL_VERSION;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function loadRuntime() {
+  if (await hasLocalCopy()) {
+    try {
+      const local = await import(`${LOCAL_POSE}vision_bundle.mjs`);
+      files = await local.FilesetResolver.forVisionTasks(`${LOCAL_POSE}wasm`);
+      vision = local;
+      modelPath = `${LOCAL_POSE}pose_landmarker_lite.task`;
+      loadedFrom = 'this device';
+      return;
+    } catch (error) {
+      report('the local pose tracker could not be loaded, using the internet', error);
+    }
+  }
+  const remote = await import(`${TASKS_VISION}/vision_bundle.mjs`);
+  files = await remote.FilesetResolver.forVisionTasks(`${TASKS_VISION}/wasm`);
+  vision = remote;
+  modelPath = POSE_MODEL;
+  loadedFrom = 'the internet';
+}
 
 async function createLandmarker(useDelegate) {
-  if (!vision) {
-    vision = await import(`${TASKS_VISION}/vision_bundle.mjs`);
-    files = await vision.FilesetResolver.forVisionTasks(`${TASKS_VISION}/wasm`);
-  }
+  if (!vision || !files) await loadRuntime();
   const created = await vision.PoseLandmarker.createFromOptions(files, {
-    baseOptions: { modelAssetPath: POSE_MODEL, delegate: useDelegate },
+    baseOptions: { modelAssetPath: modelPath, delegate: useDelegate },
     runningMode: 'VIDEO',
     numPoses: 1,
   });
   delegate = useDelegate;
-  console.info(`[PhysioAI pose] tracker ready on the ${useDelegate}`);
+  console.info(`[PhysioAI pose] tracker ready on the ${useDelegate}, loaded from ${loadedFrom}`);
   return created;
 }
 
@@ -299,6 +338,8 @@ window.physioPose = {
   status: () => ({
     running,
     delegate,
+    // 'this device' when the local copy in pose/ was used, else 'the internet'.
+    loadedFrom,
     // False means the app is not listening: frames would go nowhere.
     listening: frameCallback !== null,
     video: video ? `${video.videoWidth}x${video.videoHeight}` : null,
