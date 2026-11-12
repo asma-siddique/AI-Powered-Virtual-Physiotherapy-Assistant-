@@ -78,16 +78,15 @@ def rule_measures(series: np.ndarray, slug: str, checks: Sequence[dict]) -> dict
     return measures
 
 
-def rule_predictions(data, segmentation: Path, landmarks_dir: Path) -> tuple[np.ndarray, int]:
-    """The rule's verdict (1 correct, 0 incorrect) on every test repetition,
-    and how many of them it could not measure at all."""
+def all_measures(
+    data, rows: Sequence[int], segmentation: Path, landmarks_dir: Path, checks: dict[str, list[dict]]
+) -> tuple[list[dict[str, float | None]], list[str]]:
+    """The measures the app would send for each of the given examples, worked
+    out from that repetition's tracked frames, and each one's exercise."""
     repetitions = {rep.key: rep for rep in read_segmentation(segmentation)}
-    checks = default_checks()
-    test = np.flatnonzero(data["split"] == TEST)
-    predicted = np.zeros(len(test), dtype=int)
-    unmeasured = 0
     videos: dict[str, tuple[np.ndarray, float]] = {}
-    for n, i in enumerate(test):
+    measures, slugs = [], []
+    for i in rows:
         rep = repetitions[str(data["key"][i])]
         name = f"{rep.video_id}_c{int(data['camera'][i])}"
         if name not in videos:
@@ -96,12 +95,36 @@ def rule_predictions(data, segmentation: Path, landmarks_dir: Path) -> tuple[np.
         landmarks, aspect = videos[name]
         frames = landmarks[rep.first_frame : min(rep.last_frame, len(landmarks) - 1) + 1]
         series = np.stack([frame_vector(pose, aspect=aspect, slug=rep.exercise) for pose in frames])
-        measures = rule_measures(series, rep.exercise, checks[rep.exercise])
-        if not scoring.is_scorable(measures):
+        measures.append(rule_measures(series, rep.exercise, checks[rep.exercise]))
+        slugs.append(rep.exercise)
+    return measures, slugs
+
+
+def rule_verdicts(
+    measures: Sequence[dict], slugs: Sequence[str], checks: dict[str, list[dict]]
+) -> tuple[np.ndarray, int]:
+    """1 (correct) where no check reaches AMBER, else 0; and how many
+    repetitions had nothing measured at all."""
+    predicted = np.zeros(len(measures), dtype=int)
+    unmeasured = 0
+    for n, (m, slug) in enumerate(zip(measures, slugs, strict=True)):
+        if not scoring.is_scorable(m):
             unmeasured += 1
-        tier, _, _ = severity.classify(measures, checks[rep.exercise])
+        tier, _, _ = severity.classify(m, checks[slug])
         predicted[n] = 1 if tier in (severity.OK, severity.INFO) else 0
     return predicted, unmeasured
+
+
+def rule_predictions(
+    data, segmentation: Path, landmarks_dir: Path, checks: dict[str, list[dict]] | None = None
+) -> tuple[np.ndarray, int]:
+    """The rule's verdict (1 correct, 0 incorrect) on every test repetition,
+    and how many of them it could not measure at all. checks: exercise slug
+    to its checks with thresholds; the ones the app ships with by default."""
+    checks = checks or default_checks()
+    test = np.flatnonzero(data["split"] == TEST)
+    measures, slugs = all_measures(data, test, segmentation, landmarks_dir, checks)
+    return rule_verdicts(measures, slugs, checks)
 
 
 def classifier_predictions(data, served: classifier.Classifier, names: Sequence[str]) -> np.ndarray:
@@ -119,6 +142,7 @@ def run(
     *,
     segmentation: Path | None = None,
     landmarks: Path | None = None,
+    checks: dict[str, list[dict]] | None = None,
 ) -> dict:
     """The evaluation of one model on the dataset's test subjects, in the
     form the app's registry takes."""
@@ -134,7 +158,7 @@ def run(
         if segmentation is None or landmarks is None:
             raise SystemExit("--rule needs --segmentation and --landmarks")
         version = scoring.VERSION
-        predicted, unmeasured = rule_predictions(data, segmentation, landmarks)
+        predicted, unmeasured = rule_predictions(data, segmentation, landmarks, checks)
         extra["unmeasured_repetitions"] = unmeasured
     else:
         record = json.loads((model_dir / "record.json").read_text())

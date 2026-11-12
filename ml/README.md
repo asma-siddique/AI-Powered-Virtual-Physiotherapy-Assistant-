@@ -90,15 +90,32 @@ What the model does and does not decide once promoted: the session's **form scor
 
 ## Results so far
 
-| Model | Test agreement | Balanced accuracy | Notes |
+All numbers are agreement with the expert labels on the two test subjects (2 and 4, 366 examples), whom no choice was made on.
+
+| Model | Test agreement | Balanced accuracy | How it was chosen |
 |---|---|---|---|
-| `rehab-cnn-202610120844-23109ddc` | 60.7% of 366 | 60.1% | train 95.6%, validation 75.3%; **85% target not met** |
-| `rules-1` (the app's rule) | 51.4% of 366 | 59.4% | calls 177 of 220 correct repetitions incorrect, 1 of 146 incorrect ones correct |
+| `rehab-cnn-202611121625-ae9b9741` (in production locally) | 65.0% | 62.2% | `rehab.crossval`: 6 settings, 4 folds over the 8 non-test subjects; winner mirror + time shift + noise at 20 epochs (67.4% pooled on held-out subjects); then trained on all 8 |
+| `rehab-cnn-202610120844-23109ddc` (first model) | 60.7% | 60.1% | best epoch on the 2 validation subjects (75.3% there) |
+| `rules-1` with the shipped thresholds | 51.4% | 59.4% | hand-set |
 | always answering "correct" | 60.1% | 50.0% | for comparison |
 
-Test subjects 2 and 4, both cameras; 1,010 training, 352 validation and 366 test examples, none skipped. By exercise the model scores: arm abduction 63.4%, push-ups 77.8%, leg abduction 63.1%, leg lunge 48.8%, squats 59.5%.
+By exercise, the new model scores: arm abduction 48.8%, push-ups 75.0%, leg abduction 77.4%, leg lunge 58.8%, squats 70.2%. The 85% target is not met.
 
-What this says: the model fits the people it was trained on and does not carry over to new people (there are only 5 full training subjects; subject 10 has 16 examples). It is no better than always answering "correct", so it has not been promoted. The rule's result says the thresholds the app ships with are far too strict for what MediaPipe measures on real people. Things to try next, judged on the validation subjects only: fewer and simpler inputs, stronger regularisation and augmentation (mirroring left and right, time shifts), one small model per exercise, and cross-validation over subjects for a steadier estimate than two test people give.
+Cross-validation over the non-test subjects (`evaluations/crossval-202611121624.json`, pooled held-out agreement): baseline 65.8%, mirror 66.7%, mirror + jitter 67.4%, small 65.1%, small + mirror + jitter 65.3%, regularised + mirror + jitter 66.7%. The differences are small: with 10 people the estimate itself moves by a few points.
+
+### Thresholds derived from the labels (`rehab.thresholds`)
+
+`evaluations/thresholds-202611121614.json` sets each check's AMBER from the 8 non-test subjects, reading each check only in the camera view where it means what it says (`CHECK_VIEW`). On the test subjects agreement goes from 55.2% to 62.6% with each check in its own view, and from 51.4% to 54.1% with every check in every view, as the app reads them today.
+
+They are **not applied to the app**, because several values are not usable as they stand:
+
+- Arm abduction trunk lean: AMBER at 2.5 degrees. Correct and incorrect repetitions lean almost the same (median 2.3 against 2.4 degrees from the front), so this is fitted noise, and webcam jitter alone exceeds it.
+- Leg lunge knee forward: values of 80 to 98 degrees in the side view, where 20 to 30 is expected, so that measurement needs checking before any threshold is set on it.
+- Squats mixes checks that need different views (knee valgus from the front; forward lean and depth from the side). One camera cannot give both.
+
+They are candidates for a physiotherapist to review. The first, view-blind derivation (`evaluations/thresholds-202611121608.json`, 67.2% on test) is kept for the record but superseded: it reached that number partly by reading "knee valgus" from the side, where it measures knee bend.
+
+A note on the test subjects: they have been scored four times in all (the first model, the view-blind and the view-aware thresholds, this model). Every choice of settings or thresholds was made on the other eight subjects; the test numbers were not used to choose anything.
 
 ## Not yet done
 

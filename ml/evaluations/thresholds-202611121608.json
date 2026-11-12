@@ -1,0 +1,644 @@
+{
+  "created_at": "2026-11-12T16:08:26+00:00",
+  "dataset_sha256": "93fbdcddeda0965d3e9149a60a58a3e4283000962016d6057e35317e3643c6d5",
+  "derived_from_subjects": [
+    1,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "tested_on_subjects": [
+    2,
+    4
+  ],
+  "rule": "a repetition is called correct when no check reaches AMBER",
+  "non_test": {
+    "old": {
+      "repetitions": 1362,
+      "agreement": 0.5256975036710719,
+      "balanced_accuracy": 0.5506161819253301,
+      "confusion": {
+        "correct_called_correct": 138,
+        "correct_called_incorrect": 590,
+        "incorrect_called_correct": 56,
+        "incorrect_called_incorrect": 578
+      },
+      "by_exercise": {
+        "arm-abduction": {
+          "repetitions": 274,
+          "agreement": 0.5182481751824818,
+          "balanced_accuracy": 0.5242537313432836,
+          "confusion": {
+            "correct_called_correct": 35,
+            "correct_called_incorrect": 105,
+            "incorrect_called_correct": 27,
+            "incorrect_called_incorrect": 107
+          }
+        },
+        "push-ups": {
+          "repetitions": 178,
+          "agreement": 0.5842696629213483,
+          "balanced_accuracy": 0.5601570415400203,
+          "confusion": {
+            "correct_called_correct": 11,
+            "correct_called_incorrect": 73,
+            "incorrect_called_correct": 1,
+            "incorrect_called_incorrect": 93
+          }
+        },
+        "leg-abduction": {
+          "repetitions": 336,
+          "agreement": 0.6220238095238095,
+          "balanced_accuracy": 0.6709183673469388,
+          "confusion": {
+            "correct_called_correct": 74,
+            "correct_called_incorrect": 122,
+            "incorrect_called_correct": 5,
+            "incorrect_called_incorrect": 135
+          }
+        },
+        "leg-lunge": {
+          "repetitions": 268,
+          "agreement": 0.5485074626865671,
+          "balanced_accuracy": 0.4886569872958258,
+          "confusion": {
+            "correct_called_correct": 5,
+            "correct_called_incorrect": 111,
+            "incorrect_called_correct": 10,
+            "incorrect_called_incorrect": 142
+          }
+        },
+        "squats": {
+          "repetitions": 306,
+          "agreement": 0.37254901960784315,
+          "balanced_accuracy": 0.47683662280701755,
+          "confusion": {
+            "correct_called_correct": 13,
+            "correct_called_incorrect": 179,
+            "incorrect_called_correct": 13,
+            "incorrect_called_incorrect": 101
+          }
+        }
+      },
+      "majority_baseline_agreement": 0.5345080763582967,
+      "meets_target": false,
+      "unmeasured_repetitions": 0
+    },
+    "new": {
+      "repetitions": 1362,
+      "agreement": 0.6659324522760646,
+      "balanced_accuracy": 0.6703925018199466,
+      "confusion": {
+        "correct_called_correct": 441,
+        "correct_called_incorrect": 287,
+        "incorrect_called_correct": 168,
+        "incorrect_called_incorrect": 466
+      },
+      "by_exercise": {
+        "arm-abduction": {
+          "repetitions": 274,
+          "agreement": 0.5364963503649635,
+          "balanced_accuracy": 0.5424307036247334,
+          "confusion": {
+            "correct_called_correct": 38,
+            "correct_called_incorrect": 102,
+            "incorrect_called_correct": 25,
+            "incorrect_called_incorrect": 109
+          }
+        },
+        "push-ups": {
+          "repetitions": 178,
+          "agreement": 0.7078651685393258,
+          "balanced_accuracy": 0.713272543059777,
+          "confusion": {
+            "correct_called_correct": 68,
+            "correct_called_incorrect": 16,
+            "incorrect_called_correct": 36,
+            "incorrect_called_incorrect": 58
+          }
+        },
+        "leg-abduction": {
+          "repetitions": 336,
+          "agreement": 0.7470238095238095,
+          "balanced_accuracy": 0.741326530612245,
+          "confusion": {
+            "correct_called_correct": 152,
+            "correct_called_incorrect": 44,
+            "incorrect_called_correct": 41,
+            "incorrect_called_incorrect": 99
+          }
+        },
+        "leg-lunge": {
+          "repetitions": 268,
+          "agreement": 0.5970149253731343,
+          "balanced_accuracy": 0.536524500907441,
+          "confusion": {
+            "correct_called_correct": 10,
+            "correct_called_incorrect": 106,
+            "incorrect_called_correct": 2,
+            "incorrect_called_incorrect": 150
+          }
+        },
+        "squats": {
+          "repetitions": 306,
+          "agreement": 0.7287581699346405,
+          "balanced_accuracy": 0.6698190789473684,
+          "confusion": {
+            "correct_called_correct": 173,
+            "correct_called_incorrect": 19,
+            "incorrect_called_correct": 64,
+            "incorrect_called_incorrect": 50
+          }
+        }
+      },
+      "majority_baseline_agreement": 0.5345080763582967,
+      "meets_target": false,
+      "unmeasured_repetitions": 0
+    }
+  },
+  "test": {
+    "old": {
+      "repetitions": 366,
+      "agreement": 0.5136612021857924,
+      "balanced_accuracy": 0.5943026151930262,
+      "confusion": {
+        "correct_called_correct": 43,
+        "correct_called_incorrect": 177,
+        "incorrect_called_correct": 1,
+        "incorrect_called_incorrect": 145
+      },
+      "by_exercise": {
+        "arm-abduction": {
+          "repetitions": 82,
+          "agreement": 0.5487804878048781,
+          "balanced_accuracy": 0.5375,
+          "confusion": {
+            "correct_called_correct": 3,
+            "correct_called_incorrect": 37,
+            "incorrect_called_correct": 0,
+            "incorrect_called_incorrect": 42
+          }
+        },
+        "push-ups": {
+          "repetitions": 36,
+          "agreement": 0.6111111111111112,
+          "balanced_accuracy": 0.65,
+          "confusion": {
+            "correct_called_correct": 6,
+            "correct_called_incorrect": 14,
+            "incorrect_called_correct": 0,
+            "incorrect_called_incorrect": 16
+          }
+        },
+        "leg-abduction": {
+          "repetitions": 84,
+          "agreement": 0.6071428571428571,
+          "balanced_accuracy": 0.625,
+          "confusion": {
+            "correct_called_correct": 11,
+            "correct_called_incorrect": 33,
+            "incorrect_called_correct": 0,
+            "incorrect_called_incorrect": 40
+          }
+        },
+        "leg-lunge": {
+          "repetitions": 80,
+          "agreement": 0.5,
+          "balanced_accuracy": 0.5,
+          "confusion": {
+            "correct_called_correct": 1,
+            "correct_called_incorrect": 39,
+            "incorrect_called_correct": 1,
+            "incorrect_called_incorrect": 39
+          }
+        },
+        "squats": {
+          "repetitions": 84,
+          "agreement": 0.35714285714285715,
+          "balanced_accuracy": 0.6447368421052632,
+          "confusion": {
+            "correct_called_correct": 22,
+            "correct_called_incorrect": 54,
+            "incorrect_called_correct": 0,
+            "incorrect_called_incorrect": 8
+          }
+        }
+      },
+      "majority_baseline_agreement": 0.6010928961748634,
+      "meets_target": false,
+      "unmeasured_repetitions": 0
+    },
+    "new": {
+      "repetitions": 366,
+      "agreement": 0.6721311475409836,
+      "balanced_accuracy": 0.714601494396015,
+      "confusion": {
+        "correct_called_correct": 111,
+        "correct_called_incorrect": 109,
+        "incorrect_called_correct": 11,
+        "incorrect_called_incorrect": 135
+      },
+      "by_exercise": {
+        "arm-abduction": {
+          "repetitions": 82,
+          "agreement": 0.573170731707317,
+          "balanced_accuracy": 0.5625,
+          "confusion": {
+            "correct_called_correct": 5,
+            "correct_called_incorrect": 35,
+            "incorrect_called_correct": 0,
+            "incorrect_called_incorrect": 42
+          }
+        },
+        "push-ups": {
+          "repetitions": 36,
+          "agreement": 0.8333333333333334,
+          "balanced_accuracy": 0.8375,
+          "confusion": {
+            "correct_called_correct": 16,
+            "correct_called_incorrect": 4,
+            "incorrect_called_correct": 2,
+            "incorrect_called_incorrect": 14
+          }
+        },
+        "leg-abduction": {
+          "repetitions": 84,
+          "agreement": 0.7261904761904762,
+          "balanced_accuracy": 0.7318181818181818,
+          "confusion": {
+            "correct_called_correct": 27,
+            "correct_called_incorrect": 17,
+            "incorrect_called_correct": 6,
+            "incorrect_called_incorrect": 34
+          }
+        },
+        "leg-lunge": {
+          "repetitions": 80,
+          "agreement": 0.5,
+          "balanced_accuracy": 0.5,
+          "confusion": {
+            "correct_called_correct": 0,
+            "correct_called_incorrect": 40,
+            "incorrect_called_correct": 0,
+            "incorrect_called_incorrect": 40
+          }
+        },
+        "squats": {
+          "repetitions": 84,
+          "agreement": 0.8095238095238095,
+          "balanced_accuracy": 0.7269736842105263,
+          "confusion": {
+            "correct_called_correct": 63,
+            "correct_called_incorrect": 13,
+            "incorrect_called_correct": 3,
+            "incorrect_called_incorrect": 5
+          }
+        }
+      },
+      "majority_baseline_agreement": 0.6010928961748634,
+      "meets_target": false,
+      "unmeasured_repetitions": 0
+    }
+  },
+  "per_exercise": {
+    "arm-abduction": {
+      "examples": 274,
+      "balanced_accuracy_before": 0.5242537313432836,
+      "balanced_accuracy_after": 0.5424307036247334,
+      "changes": {
+        "trunk_lean": {
+          "info": [
+            5,
+            3.0
+          ],
+          "amber": [
+            10,
+            3.5
+          ],
+          "red": [
+            20,
+            20
+          ]
+        },
+        "elbow_bend": {
+          "info": [
+            10,
+            21.0
+          ],
+          "amber": [
+            20,
+            21.5
+          ],
+          "red": [
+            null,
+            null
+          ]
+        }
+      }
+    },
+    "leg-abduction": {
+      "examples": 336,
+      "balanced_accuracy_before": 0.6709183673469388,
+      "balanced_accuracy_after": 0.741326530612245,
+      "changes": {
+        "trunk_lean": {
+          "info": [
+            5,
+            13.5
+          ],
+          "amber": [
+            10,
+            17.5
+          ],
+          "red": [
+            20,
+            20
+          ]
+        },
+        "knee_bend": {
+          "info": [
+            10,
+            20.0
+          ],
+          "amber": [
+            20,
+            27.0
+          ],
+          "red": [
+            null,
+            null
+          ]
+        }
+      }
+    },
+    "leg-lunge": {
+      "examples": 268,
+      "balanced_accuracy_before": 0.4886569872958258,
+      "balanced_accuracy_after": 0.536524500907441,
+      "changes": {
+        "knee_valgus": {
+          "info": [
+            5,
+            12.0
+          ],
+          "amber": [
+            10,
+            12.5
+          ],
+          "red": [
+            15,
+            15
+          ]
+        },
+        "knee_forward": {
+          "info": [
+            10,
+            17.0
+          ],
+          "amber": [
+            20,
+            17.5
+          ],
+          "red": [
+            30,
+            30
+          ]
+        },
+        "trunk_lean": {
+          "info": [
+            10,
+            3.0
+          ],
+          "amber": [
+            20,
+            3.5
+          ],
+          "red": [
+            null,
+            null
+          ]
+        }
+      }
+    },
+    "push-ups": {
+      "examples": 178,
+      "balanced_accuracy_before": 0.5601570415400203,
+      "balanced_accuracy_after": 0.713272543059777,
+      "changes": {
+        "hip_sag": {
+          "info": [
+            5,
+            20.0
+          ],
+          "amber": [
+            12,
+            21.0
+          ],
+          "red": [
+            20,
+            29.0
+          ]
+        },
+        "depth": {
+          "info": [
+            10,
+            25.5
+          ],
+          "amber": [
+            25,
+            51.0
+          ],
+          "red": [
+            null,
+            null
+          ]
+        }
+      }
+    },
+    "squats": {
+      "examples": 306,
+      "balanced_accuracy_before": 0.47683662280701755,
+      "balanced_accuracy_after": 0.6698190789473684,
+      "changes": {
+        "knee_valgus": {
+          "info": [
+            5,
+            93.5
+          ],
+          "amber": [
+            10,
+            108.5
+          ],
+          "red": [
+            15,
+            113.5
+          ]
+        },
+        "trunk_lean": {
+          "info": [
+            10,
+            33.5
+          ],
+          "amber": [
+            20,
+            43.5
+          ],
+          "red": [
+            30,
+            53.5
+          ]
+        },
+        "depth": {
+          "info": [
+            10,
+            26.0
+          ],
+          "amber": [
+            25,
+            66.5
+          ],
+          "red": [
+            null,
+            null
+          ]
+        }
+      }
+    }
+  },
+  "checks": {
+    "arm-abduction": [
+      {
+        "key": "trunk_lean",
+        "label": "Trunk lean",
+        "measure": "Sideways lean of the trunk away from vertical",
+        "unit": "degrees",
+        "info": 3.0,
+        "amber": 3.5,
+        "red": 20,
+        "corrective_message": "Keep your body upright. Do not lean away as you lift your arm."
+      },
+      {
+        "key": "elbow_bend",
+        "label": "Elbow straightness",
+        "measure": "Elbow flexion during the lift",
+        "unit": "degrees",
+        "info": 21.0,
+        "amber": 21.5,
+        "red": null,
+        "corrective_message": "Keep your elbow straight as you raise your arm."
+      }
+    ],
+    "leg-abduction": [
+      {
+        "key": "trunk_lean",
+        "label": "Trunk lean",
+        "measure": "Sideways lean of the trunk away from vertical",
+        "unit": "degrees",
+        "info": 13.5,
+        "amber": 17.5,
+        "red": 20,
+        "corrective_message": "Stay upright. Do not lean over as your leg moves out."
+      },
+      {
+        "key": "knee_bend",
+        "label": "Leg straightness",
+        "measure": "Knee flexion of the moving leg",
+        "unit": "degrees",
+        "info": 20.0,
+        "amber": 27.0,
+        "red": null,
+        "corrective_message": "Keep the moving leg straight."
+      }
+    ],
+    "leg-lunge": [
+      {
+        "key": "knee_valgus",
+        "label": "Knee alignment",
+        "measure": "Inward deviation of the front knee from the hip-ankle line",
+        "unit": "degrees",
+        "info": 12.0,
+        "amber": 12.5,
+        "red": 15,
+        "corrective_message": "Keep your front knee in line with your toes."
+      },
+      {
+        "key": "knee_forward",
+        "label": "Knee position",
+        "measure": "Forward angle of the front shin beyond vertical",
+        "unit": "degrees",
+        "info": 17.0,
+        "amber": 17.5,
+        "red": 30,
+        "corrective_message": "Do not let your front knee move past your toes."
+      },
+      {
+        "key": "trunk_lean",
+        "label": "Back posture",
+        "measure": "Forward lean of the trunk beyond the expected range",
+        "unit": "degrees",
+        "info": 3.0,
+        "amber": 3.5,
+        "red": null,
+        "corrective_message": "Keep your chest up and your back straight."
+      }
+    ],
+    "push-ups": [
+      {
+        "key": "hip_sag",
+        "label": "Body line",
+        "measure": "Deviation of the hips from the shoulder-ankle line",
+        "unit": "degrees",
+        "info": 20.0,
+        "amber": 21.0,
+        "red": 29.0,
+        "corrective_message": "Keep your body in a straight line. Do not let your hips drop or rise."
+      },
+      {
+        "key": "depth",
+        "label": "Depth",
+        "measure": "Elbow angle short of 90 degrees at the lowest point",
+        "unit": "degrees",
+        "info": 25.5,
+        "amber": 51.0,
+        "red": null,
+        "corrective_message": "Lower your chest a little further if it is comfortable."
+      }
+    ],
+    "squats": [
+      {
+        "key": "knee_valgus",
+        "label": "Knee alignment",
+        "measure": "Inward deviation of the knees from the hip-ankle line",
+        "unit": "degrees",
+        "info": 93.5,
+        "amber": 108.5,
+        "red": 113.5,
+        "corrective_message": "Keep your knees in line with your toes. Do not let them move inward."
+      },
+      {
+        "key": "trunk_lean",
+        "label": "Back posture",
+        "measure": "Forward lean of the trunk beyond the expected range",
+        "unit": "degrees",
+        "info": 33.5,
+        "amber": 43.5,
+        "red": 53.5,
+        "corrective_message": "Lift your chest and keep your back straight."
+      },
+      {
+        "key": "depth",
+        "label": "Depth",
+        "measure": "Knee angle short of the target depth",
+        "unit": "degrees",
+        "info": 26.0,
+        "amber": 66.5,
+        "red": null,
+        "corrective_message": "Lower a little further if it is comfortable."
+      }
+    ]
+  }
+}

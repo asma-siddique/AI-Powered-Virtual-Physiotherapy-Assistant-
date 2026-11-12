@@ -35,6 +35,17 @@ from rehab.metrics import TARGET_AGREEMENT, evaluate
 
 SETTINGS = {
     "epochs": 80,
+    # Augmentation, off unless asked for (rehab.crossval chooses it):
+    # mirror = every training repetition also seen with left and right swapped;
+    # shift = up to this many time steps earlier or later; noise = standard
+    # deviation added to measured values (in units of 180 degrees).
+    "mirror": False,
+    "shift": 0,
+    "noise": 0.0,
+    # True: train on the train AND validation subjects for exactly "epochs"
+    # epochs, chosen beforehand by cross-validation, instead of picking the
+    # best epoch on the validation subjects.
+    "fit_on_validation": False,
     "batch_size": 32,
     "learning_rate": 1e-3,
     "weight_decay": 1e-4,
@@ -91,44 +102,62 @@ def _git_commit() -> str | None:
         return None
 
 
-def train(
-    data_path: Path, out_dir: Path, settings: dict | None = None, records_dir: Path | None = None
-) -> Path:
+def mirror_pairs(channels: Sequence[str]) -> list[tuple[int, int]]:
+    """Index pairs of the same joint on the left and right side."""
+    return [
+        (i, list(channels).index("right_" + name[5:]))
+        for i, name in enumerate(channels)
+        if name.startswith("left_")
+    ]
+
+
+def mirrored(
+    x: np.ndarray, mask: np.ndarray, pairs: Sequence[tuple[int, int]]
+) -> tuple[np.ndarray, np.ndarray]:
+    """The same repetitions with left and right swapped: the person seen in a
+    mirror. The form checks already take the worse side, so they stay."""
+    x2, m2 = x.copy(), mask.copy()
+    for a, b in pairs:
+        x2[:, [a, b]] = x[:, [b, a]]
+        m2[:, [a, b]] = mask[:, [b, a]]
+    return x2, m2
+
+
+def _jitter(x, mask, settings: dict, generator):
+    """A random shift in time (edges repeated, never wrapped round) and a
+    little noise on measured values."""
     import torch  # noqa: PLC0415
 
-    settings = {**SETTINGS, **(settings or {})}
+    shift = int(settings.get("shift", 0))
+    if shift:
+        s = int(torch.randint(-shift, shift + 1, (1,), generator=generator))
+        if s > 0:
+            x = torch.cat([x[:, :, :1].expand(-1, -1, s), x[:, :, :-s]], dim=2)
+            mask = torch.cat([mask[:, :, :1].expand(-1, -1, s), mask[:, :, :-s]], dim=2)
+        elif s < 0:
+            x = torch.cat([x[:, :, -s:], x[:, :, -1:].expand(-1, -1, -s)], dim=2)
+            mask = torch.cat([mask[:, :, -s:], mask[:, :, -1:].expand(-1, -1, -s)], dim=2)
+    noise = float(settings.get("noise", 0.0))
+    if noise:
+        x = x + noise * torch.randn(x.shape, generator=generator) * mask
+    return x, mask
+
+
+def fit(train: tuple, settings: dict, channels: int, exercises: int, after_epoch=None):
+    """Trains one network on train = (x, mask, exercise one-hot, label) and
+    returns it. after_epoch(epoch, predict) is called after every epoch;
+    predict(x, mask, onehot) gives the probability of "correct"."""
+    import torch  # noqa: PLC0415
+
     torch.manual_seed(settings["seed"])
     np.random.seed(settings["seed"])
-
-    data = np.load(data_path)
-    manifest = json.loads(data_path.with_suffix(".json").read_text())
-    names = manifest["exercises"]
-    split = data["split"]
-    channels = data["x"].shape[1]
-
-    def tensors(name: str):
-        sel = split == name
-        onehot = np.eye(len(names), dtype=np.float32)[data["exercise"][sel]]
-        return (
-            torch.from_numpy(data["x"][sel]),
-            torch.from_numpy(data["mask"][sel]),
-            torch.from_numpy(onehot),
-            torch.from_numpy(data["label"][sel].astype(np.float32)),
-            data["exercise"][sel],
-        )
-
-    train_x, train_m, train_e, train_y, _ = tensors("train")
-    val = tensors("val")
-    test = tensors("test")
-    if min(len(train_y), len(val[3]), len(test[3])) == 0:
-        raise SystemExit("every split needs examples; check the dataset manifest")
-
-    model = _build_model(channels, len(names), settings["hidden"], settings["dropout"])
+    train_x, train_m, train_e, train_y = train
+    model = _build_model(channels, exercises, settings["hidden"], settings["dropout"])
     optimizer = torch.optim.Adam(
         model.parameters(), lr=settings["learning_rate"], weight_decay=settings["weight_decay"]
     )
-    # Incorrect repetitions are the rarer ones; they are weighted up so the
-    # model cannot do well by calling everything correct.
+    # The loss is weighted so the classes count equally, so the model cannot
+    # do well by calling everything correct (or incorrect).
     positives = float(train_y.sum())
     pos_weight = torch.tensor((len(train_y) - positives) / max(positives, 1.0))
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
@@ -136,9 +165,8 @@ def train(
     def predict(x, m, e) -> np.ndarray:
         model.eval()
         with torch.no_grad():
-            return (torch.sigmoid(model(x, m, e)) >= 0.5).long().numpy()
+            return torch.sigmoid(model(x, m, e)).numpy()
 
-    best_state, best_score, best_epoch = None, -1.0, -1
     generator = torch.Generator().manual_seed(settings["seed"])
     for epoch in range(settings["epochs"]):
         model.train()
@@ -147,18 +175,87 @@ def train(
             idx = order[start : start + settings["batch_size"]]
             if len(idx) < 2:
                 continue  # batch normalisation needs more than one example
+            x, m = _jitter(train_x[idx], train_m[idx], settings, generator)
             optimizer.zero_grad()
-            loss = loss_fn(model(train_x[idx], train_m[idx], train_e[idx]), train_y[idx])
+            loss = loss_fn(model(x, m, train_e[idx]), train_y[idx])
             loss.backward()
             optimizer.step()
-        score = evaluate(val[3].numpy(), predict(*val[:3]), val[4], names)["balanced_accuracy"]
-        if score > best_score:
-            best_score, best_epoch = score, epoch
-            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+        if after_epoch is not None:
+            after_epoch(epoch, predict, model)
+    model.eval()
+    return model, predict
 
-    model.load_state_dict(best_state)
-    val_metrics = evaluate(val[3].numpy(), predict(*val[:3]), val[4], names)
-    test_metrics = evaluate(test[3].numpy(), predict(*test[:3]), test[4], names)
+
+def tensors_of(data, sel: np.ndarray, names: Sequence[str], *, mirror: bool = False, channels=None):
+    """Torch tensors for the selected examples; with mirror, each one twice."""
+    import torch  # noqa: PLC0415
+
+    x, m = data["x"][sel], data["mask"][sel]
+    exercise, label = data["exercise"][sel], data["label"][sel]
+    if mirror:
+        x2, m2 = mirrored(x, m, mirror_pairs(channels))
+        x, m = np.concatenate([x, x2]), np.concatenate([m, m2])
+        exercise, label = np.concatenate([exercise, exercise]), np.concatenate([label, label])
+    onehot = np.eye(len(names), dtype=np.float32)[exercise]
+    return (
+        torch.from_numpy(np.ascontiguousarray(x)),
+        torch.from_numpy(np.ascontiguousarray(m)),
+        torch.from_numpy(onehot),
+        torch.from_numpy(label.astype(np.float32)),
+    ), exercise
+
+
+def train(
+    data_path: Path,
+    out_dir: Path,
+    settings: dict | None = None,
+    records_dir: Path | None = None,
+    cross_validation: dict | None = None,
+) -> Path:
+    import torch  # noqa: PLC0415
+
+    settings = {**SETTINGS, **(settings or {})}
+    data = np.load(data_path)
+    manifest = json.loads(data_path.with_suffix(".json").read_text())
+    names = manifest["exercises"]
+    split = data["split"]
+    channels = data["x"].shape[1]
+    channel_names = manifest["channels"]
+
+    def held_out(name: str):
+        tensors, exercise = tensors_of(data, split == name, names)
+        return tensors, exercise
+
+    final = bool(settings["fit_on_validation"])
+    training = np.isin(split, ["train", "val"]) if final else split == "train"
+    train_tensors, _ = tensors_of(data, training, names, mirror=settings["mirror"], channels=channel_names)
+    val, val_exercise = held_out("val")
+    test, test_exercise = held_out("test")
+    if min(len(train_tensors[3]), len(val[3]), len(test[3])) == 0:
+        raise SystemExit("every split needs examples; check the dataset manifest")
+
+    def judged(predict, tensors) -> np.ndarray:
+        return (predict(*tensors[:3]) >= 0.5).astype(int)
+
+    best = {"score": -1.0, "epoch": -1, "state": None}
+
+    def keep_best(epoch, predict, model):
+        if final:
+            return
+        score = evaluate(val[3].numpy(), judged(predict, val), val_exercise, names)["balanced_accuracy"]
+        if score > best["score"]:
+            best.update(
+                score=score, epoch=epoch, state={k: v.detach().clone() for k, v in model.state_dict().items()}
+            )
+
+    model, predict = fit(train_tensors, settings, channels, len(names), keep_best)
+    if not final:
+        model.load_state_dict(best["state"])
+    best_epoch = settings["epochs"] - 1 if final else best["epoch"]
+    # With fit_on_validation the validation subjects were trained on, so their
+    # score says nothing; the cross-validation estimate stands in for it.
+    val_metrics = None if final else evaluate(val[3].numpy(), judged(predict, val), val_exercise, names)
+    test_metrics = evaluate(test[3].numpy(), judged(predict, test), test_exercise, names)
 
     weights_path = out_dir / "_pending.pt"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -189,6 +286,10 @@ def train(
         },
         "settings": settings,
         "chosen_epoch": best_epoch,
+        "selection": "cross-validation over the training subjects"
+        if final
+        else "best epoch on the validation subjects",
+        "cross_validation": cross_validation,
         "validation": val_metrics,
         "test": test_metrics,
         "target_agreement": TARGET_AGREEMENT,
@@ -215,8 +316,27 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--records", type=Path, default=Path("model_records"))
     parser.add_argument("--epochs", type=int)
+    parser.add_argument(
+        "--from-crossval",
+        type=Path,
+        help="a rehab.crossval report: train its winning settings on the train and validation subjects",
+    )
     args = parser.parse_args(argv)
-    target = train(args.data, args.out, {"epochs": args.epochs} if args.epochs else None, args.records)
+    settings = {"epochs": args.epochs} if args.epochs else None
+    cross_validation = None
+    if args.from_crossval:
+        report = json.loads(args.from_crossval.read_text())
+        winner = report["winner"]
+        settings = {**winner["settings"], "epochs": winner["epoch"] + 1, "fit_on_validation": True}
+        cross_validation = {
+            "report": args.from_crossval.name,
+            "folds": report["folds"],
+            "winner": winner["name"],
+            "agreement": winner["agreement"],
+            "balanced_accuracy": winner["balanced_accuracy"],
+            "candidates": {name: c["best"] for name, c in report["candidates"].items()},
+        }
+    target = train(args.data, args.out, settings, args.records, cross_validation)
     record = json.loads((target / "record.json").read_text())
     test = record["test"]
     print(f"model {record['model_version']} (epoch {record['chosen_epoch']})")
