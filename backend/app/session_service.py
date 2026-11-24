@@ -107,6 +107,9 @@ def requirements(db: Session, patient: Account, item_id: uuid.UUID) -> PrecheckR
         min_visibility=pose.MIN_VISIBILITY,
         min_brightness=pose.MIN_BRIGHTNESS,
         hold_ms=pose.HOLD_MS,
+        camera_view=template.camera_view,
+        front_min_ratio=pose.FRONT_MIN_RATIO,
+        side_max_ratio=pose.SIDE_MAX_RATIO,
     )
 
 
@@ -435,6 +438,8 @@ def start(
         brightness=evidence.brightness,
         visibility=evidence.visibility,
         held_ms=evidence.held_ms,
+        view=template.camera_view,
+        shoulder_ratio=evidence.shoulder_ratio,
     )
     if problems:
         # No session row is written, so nothing can ever be scored against a
@@ -484,6 +489,8 @@ def start(
             "min_visibility": pose.MIN_VISIBILITY,
             "min_brightness": pose.MIN_BRIGHTNESS,
             "hold_ms": pose.HOLD_MS,
+            "camera_view": template.camera_view,
+            "shoulder_ratio": evidence.shoulder_ratio,
         },
     )
     db.add(session)

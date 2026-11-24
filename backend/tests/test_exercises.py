@@ -71,6 +71,7 @@ def test_a_new_exercise_starts_switched_off_until_an_admin_turns_it_on(client, a
         {"target_joints": []},
         {"target_joints": ["  "]},
         {"movement_pattern": "short"},
+        {"camera_view": "above"},
     ],
 )
 def test_incomplete_or_inconsistent_templates_are_rejected(client, db, admin, overrides):
@@ -112,6 +113,18 @@ def test_editing_thresholds_makes_a_new_version_and_records_the_old_values(clien
     assert entry.detail["version"] == 2
     assert entry.detail["changed"]["checks"]["from"][0]["red"] == 15
     assert entry.detail["changed"]["checks"]["to"][0]["red"] == 12
+
+
+def test_an_exercise_faces_the_camera_unless_the_admin_says_side_on(client, db, make, admin):
+    created = client.post(ADMIN, json=template(), headers=admin).json()
+    assert created["camera_view"] == "front"
+
+    response = client.patch(f"{ADMIN}/{created['id']}", json={"camera_view": "side"}, headers=admin)
+
+    assert response.status_code == 200, response.text
+    assert (response.json()["camera_view"], response.json()["version"]) == ("side", 2)
+    entry = db.execute(select(AuditLog).where(AuditLog.action == "exercise_template.updated")).scalar_one()
+    assert entry.detail["changed"]["camera_view"] == {"from": "front", "to": "side"}
 
 
 def test_saving_without_changes_does_not_create_a_version(client, db, make, admin):

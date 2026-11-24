@@ -23,6 +23,9 @@ def demo(monkeypatch) -> dict[str, str]:
     }
     for name, value in values.items():
         monkeypatch.setattr(settings, name, value)
+    # Not from the developer's own .env: test patients then use the demo
+    # patient's password, which is what these tests expect.
+    monkeypatch.setattr(settings, "seed_test_patient_password", None)
     return values
 
 

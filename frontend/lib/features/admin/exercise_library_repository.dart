@@ -54,6 +54,7 @@ class ExerciseTemplate {
     required this.isActive,
     required this.version,
     required this.updatedAt,
+    this.cameraView = 'front',
   });
 
   factory ExerciseTemplate.fromJson(Map<String, dynamic> json) =>
@@ -76,12 +77,17 @@ class ExerciseTemplate {
         isActive: json['is_active'] as bool,
         version: json['version'] as int,
         updatedAt: DateTime.parse(json['updated_at'] as String),
+        cameraView: json['camera_view'] as String? ?? 'front',
       );
 
   final String id;
   final String name;
   final String domain;
   final String bodyArea;
+
+  /// 'front' or 'side': which way the patient faces the camera. Some checks
+  /// only measure what they claim from one side.
+  final String cameraView;
   final String primaryTargets;
   final List<String> targetJoints;
   final String movementPattern;

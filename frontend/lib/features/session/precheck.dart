@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../exercises/exercise_models.dart';
 import 'pose/pose_models.dart';
 import 'repetitions.dart';
@@ -17,6 +19,9 @@ class PrecheckRequirements {
     required this.minVisibility,
     required this.minBrightness,
     required this.holdMs,
+    this.cameraView = CameraView.front,
+    this.frontMinRatio = 0.55,
+    this.sideMaxRatio = 0.35,
   });
 
   factory PrecheckRequirements.fromJson(Map<String, dynamic> json) =>
@@ -36,6 +41,9 @@ class PrecheckRequirements {
         minVisibility: (json['min_visibility'] as num).toDouble(),
         minBrightness: (json['min_brightness'] as num).toDouble(),
         holdMs: json['hold_ms'] as int,
+        cameraView: CameraView.fromApi(json['camera_view'] as String?),
+        frontMinRatio: (json['front_min_ratio'] as num?)?.toDouble() ?? 0.55,
+        sideMaxRatio: (json['side_max_ratio'] as num?)?.toDouble() ?? 0.35,
       );
 
   final String itemId;
@@ -48,7 +56,56 @@ class PrecheckRequirements {
   final double minVisibility;
   final double minBrightness;
   final int holdMs;
+
+  /// Which way the patient faces the camera for this exercise.
+  final CameraView cameraView;
+
+  /// Shoulder width against trunk height: at least this facing the camera,
+  /// at most [sideMaxRatio] side-on. Set by the API from REHAB24-6's
+  /// labelled views.
+  final double frontMinRatio;
+  final double sideMaxRatio;
 }
+
+/// Which way the patient faces the camera. Some checks only measure what
+/// they claim from one side: knee alignment and a sideways lean from the
+/// front; a forward lean, hip sag and depth from the side.
+enum CameraView {
+  front,
+  side;
+
+  static CameraView fromApi(String? value) => value == 'side' ? side : front;
+}
+
+/// Landmarks at least this visible count for telling which way someone
+/// faces. Lower than for measuring: from the side the far shoulder is half
+/// hidden, and only its rough position matters here.
+const facingMinVisibility = 0.3;
+
+/// Shoulder width against trunk height in one frame (x scaled by the
+/// picture's aspect ratio): about 0.6 to 0.8 facing the camera, under 0.3
+/// side-on. Null when the shoulders and hips are not all in view.
+double? shoulderRatio(PoseFrame frame, double aspectRatio) {
+  final ls = frame.landmarks['left_shoulder'];
+  final rs = frame.landmarks['right_shoulder'];
+  final lh = frame.landmarks['left_hip'];
+  final rh = frame.landmarks['right_hip'];
+  if (ls == null || rs == null || lh == null || rh == null) return null;
+  if ([ls, rs, lh, rh].any((p) => p.visibility < facingMinVisibility)) {
+    return null;
+  }
+  final width = (ls.x - rs.x).abs() * aspectRatio;
+  final dx = ((ls.x + rs.x) - (lh.x + rh.x)) / 2 * aspectRatio;
+  final dy = ((ls.y + rs.y) - (lh.y + rh.y)) / 2;
+  final trunk = math.sqrt(dx * dx + dy * dy);
+  return trunk == 0 ? null : width / trunk;
+}
+
+String? _otherSide(String name) => name.startsWith('left_')
+    ? 'right_${name.substring(5)}'
+    : name.startsWith('right_')
+    ? 'left_${name.substring(6)}'
+    : null;
 
 /// One camera frame judged against the requirements.
 class SetupReading {
@@ -56,6 +113,8 @@ class SetupReading {
     required this.lightingOk,
     required this.missing,
     required this.personSeen,
+    this.facingOk = true,
+    this.shoulderRatio,
     this.guidance,
   });
 
@@ -67,24 +126,50 @@ class SetupReading {
   /// False when the camera found nobody at all.
   final bool personSeen;
 
+  /// The patient faces the camera the way the exercise needs.
+  final bool facingOk;
+
+  /// Shoulder width against trunk height in this frame, if measurable.
+  final double? shoulderRatio;
+
   /// What the patient should do next; null when the setup is good.
   final String? guidance;
 
   bool get bodyOk => personSeen && missing.isEmpty;
-  bool get ok => lightingOk && bodyOk;
+  bool get ok => lightingOk && bodyOk && facingOk;
 }
 
 bool _all(Iterable<String> names, bool Function(String) test) =>
     names.isNotEmpty && names.every(test);
 
 /// Judges one frame and says, specifically, what to change.
-SetupReading judgeSetup(PoseFrame frame, PrecheckRequirements requirements) {
+SetupReading judgeSetup(
+  PoseFrame frame,
+  PrecheckRequirements requirements, {
+  double aspectRatio = 4 / 3,
+}) {
   final lightingOk = frame.brightness >= requirements.minBrightness;
   final personSeen = frame.landmarks.isNotEmpty;
+  final side = requirements.cameraView == CameraView.side;
+  // Side-on, the far half of the body is hidden: a joint counts when either
+  // side of it is clearly in view, which is all the measurements need.
+  bool seen(String name) {
+    if (frame.visibilityOf(name) >= requirements.minVisibility) return true;
+    final other = side ? _otherSide(name) : null;
+    return other != null &&
+        frame.visibilityOf(other) >= requirements.minVisibility;
+  }
+
   final missing = [
     for (final name in requirements.requiredLandmarks)
-      if (frame.visibilityOf(name) < requirements.minVisibility) name,
+      if (!seen(name)) name,
   ];
+  final ratio = shoulderRatio(frame, aspectRatio);
+  final facingOk =
+      ratio != null &&
+      (side
+          ? ratio <= requirements.sideMaxRatio
+          : ratio >= requirements.frontMinRatio);
 
   String? guidance;
   if (!lightingOk) {
@@ -114,11 +199,17 @@ SetupReading judgeSetup(PoseFrame frame, PrecheckRequirements requirements) {
     } else {
       guidance = 'Step back until your whole body fits in the picture.';
     }
+  } else if (!facingOk) {
+    guidance = side
+        ? 'Turn sideways so the camera sees your side.'
+        : 'Turn to face the camera.';
   }
   return SetupReading(
     lightingOk: lightingOk,
     missing: missing,
     personSeen: personSeen,
+    facingOk: facingOk,
+    shoulderRatio: ratio,
     guidance: guidance,
   );
 }
@@ -126,7 +217,10 @@ SetupReading judgeSetup(PoseFrame frame, PrecheckRequirements requirements) {
 /// Follows the camera until the setup has stayed good for long enough, and
 /// keeps the weakest values seen during that time as the evidence to submit.
 class PrecheckTracker {
-  PrecheckTracker(this.requirements);
+  PrecheckTracker(this.requirements, {this.aspectRatio = 4 / 3});
+
+  /// Width over height of the camera picture.
+  final double aspectRatio;
 
   final PrecheckRequirements requirements;
 
@@ -134,6 +228,10 @@ class PrecheckTracker {
   double _heldMs = 0;
   double _lowestBrightness = 1;
   final _lowestVisibility = <String, double>{};
+
+  /// The shoulder ratio furthest from what the exercise needs during the
+  /// hold: the lowest facing the camera, the highest side-on.
+  double? _worstRatio;
   SetupReading? reading;
 
   /// How far through the hold the patient is, 0 to 1.
@@ -147,10 +245,11 @@ class PrecheckTracker {
     _heldMs = 0;
     _lowestBrightness = 1;
     _lowestVisibility.clear();
+    _worstRatio = null;
   }
 
   SetupReading add(PoseFrame frame) {
-    final judged = judgeSetup(frame, requirements);
+    final judged = judgeSetup(frame, requirements, aspectRatio: aspectRatio);
     reading = judged;
     if (!judged.ok) {
       // Moving out of view or losing the light starts the hold again.
@@ -167,6 +266,14 @@ class PrecheckTracker {
       final lowest = _lowestVisibility[name];
       if (lowest == null || seen < lowest) _lowestVisibility[name] = seen;
     }
+    final ratio = judged.shoulderRatio;
+    final worst = _worstRatio;
+    if (ratio != null) {
+      final side = requirements.cameraView == CameraView.side;
+      if (worst == null || (side ? ratio > worst : ratio < worst)) {
+        _worstRatio = ratio;
+      }
+    }
     return judged;
   }
 
@@ -179,6 +286,8 @@ class PrecheckTracker {
       for (final entry in _lowestVisibility.entries)
         entry.key: double.parse(entry.value.toStringAsFixed(4)),
     },
+    if (_worstRatio != null)
+      'shoulder_ratio': double.parse(_worstRatio!.toStringAsFixed(4)),
   };
 }
 

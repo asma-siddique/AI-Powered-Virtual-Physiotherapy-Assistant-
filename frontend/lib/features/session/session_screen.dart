@@ -151,7 +151,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
   }
 
   Future<void> _begin(PrecheckRequirements requirements) async {
-    _tracker = PrecheckTracker(requirements);
+    _tracker = PrecheckTracker(requirements, aspectRatio: _source.aspectRatio);
     await _startCamera();
   }
 
@@ -208,7 +208,11 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
       // patient is still in view; the hold is not restarted.
       _reading = _session == null
           ? tracker.add(frame)
-          : judgeSetup(frame, tracker.requirements);
+          : judgeSetup(
+              frame,
+              tracker.requirements,
+              aspectRatio: _source.aspectRatio,
+            );
     });
     _speakGuidance(frame);
     if (_session == null &&

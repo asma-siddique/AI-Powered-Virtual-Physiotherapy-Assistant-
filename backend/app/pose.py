@@ -63,6 +63,32 @@ MIN_BRIGHTNESS = 0.25
 # The setup has to stay good for this long, so a passing glance does not count.
 HOLD_MS = 1500
 
+# Which way the patient faces, from the width of the shoulders against the
+# height of the trunk (x scaled by the picture's aspect ratio). Measured on
+# REHAB24-6's labelled views: from the front 0.59 to 0.80 (5th to 95th
+# percentile), at an angle 0.28 to 0.60, from the side 0.02 to 0.22 (push-ups
+# up to 0.31).
+FRONT_MIN_RATIO = 0.55
+SIDE_MAX_RATIO = 0.35
+VIEWS = ("front", "side")
+
+
+def facing_ok(view: str, shoulder_ratio: float | None) -> bool:
+    """Whether the patient faces the camera the way the exercise needs."""
+    if shoulder_ratio is None:
+        return False
+    if view == "side":
+        return shoulder_ratio <= SIDE_MAX_RATIO
+    return shoulder_ratio >= FRONT_MIN_RATIO
+
+
+def _other_side(name: str) -> str | None:
+    if name.startswith("left_"):
+        return "right_" + name[5:]
+    if name.startswith("right_"):
+        return "left_" + name[6:]
+    return None
+
 
 # The joints a check has to see to be measured (see app/pose_features.py). An
 # elbow's bend, for example, cannot be measured without the wrist.
@@ -106,14 +132,31 @@ def required_landmarks(
 
 
 def precheck_problems(
-    required: list[str], *, brightness: float, visibility: dict[str, float], held_ms: int
+    required: list[str],
+    *,
+    brightness: float,
+    visibility: dict[str, float],
+    held_ms: int,
+    view: str = "front",
+    shoulder_ratio: float | None = None,
+    check_facing: bool = True,
 ) -> list[str]:
     """Why the submitted camera check does not pass; empty when it does.
-    "lighting", "steady", or "landmark:<name>" for each one not clearly in view."""
+    "lighting", "steady", "facing", or "landmark:<name>" for each one not
+    clearly in view. From the side the far half of the body is hidden, so a
+    joint passes when either side of it is clearly in view."""
     problems = []
     if brightness < MIN_BRIGHTNESS:
         problems.append("lighting")
-    problems += [f"landmark:{name}" for name in required if visibility.get(name, 0.0) < MIN_VISIBILITY]
+    for name in required:
+        seen = visibility.get(name, 0.0)
+        other = _other_side(name)
+        if view == "side" and other is not None:
+            seen = max(seen, visibility.get(other, 0.0))
+        if seen < MIN_VISIBILITY:
+            problems.append(f"landmark:{name}")
+    if check_facing and not facing_ok(view, shoulder_ratio):
+        problems.append("facing")
     if held_ms < HOLD_MS:
         problems.append("steady")
     return problems

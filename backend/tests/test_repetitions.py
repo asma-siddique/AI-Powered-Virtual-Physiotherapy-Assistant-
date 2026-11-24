@@ -46,7 +46,12 @@ class Arm(Case):
     def begin(self) -> str:
         landmarks = pose.required_landmarks(ARM_JOINTS, ["trunk_lean", "elbow_bend"])
         response = self.start(
-            {"brightness": 0.55, "held_ms": 1800, "visibility": dict.fromkeys(landmarks, 0.93)}
+            {
+                "brightness": 0.55,
+                "held_ms": 1800,
+                "visibility": dict.fromkeys(landmarks, 0.93),
+                "shoulder_ratio": 0.7,
+            }
         )
         assert response.status_code == 201, response.text
         return response.json()["id"]
