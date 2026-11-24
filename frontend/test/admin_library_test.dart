@@ -187,6 +187,26 @@ void main() {
     },
   );
 
+  testWidgets('an exercise can be set to be done side-on to the camera', (
+    tester,
+  ) async {
+    final library = await openLibrary(tester);
+    await tapKey(tester, 'exercise-edit-squats');
+    expect(find.text('Facing the camera'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('ex-camera-view')));
+    await tapKey(tester, 'ex-camera-view');
+    await tester.tap(find.text('Side-on to the camera').last);
+    await tester.pumpAndSettle();
+    await tapKey(tester, 'save-exercise');
+
+    expect(library.updated.single.fields['camera_view'], 'side');
+    expect(
+      library.exercises.firstWhere((e) => e.id == 'squats').cameraView,
+      'side',
+    );
+  });
+
   testWidgets('thresholds that do not increase are refused before saving', (
     tester,
   ) async {
@@ -261,6 +281,7 @@ void main() {
     final sent = library.created.single;
     expect(sent['name'], 'Glute Bridge');
     expect(sent['target_joints'], ['hip', 'knee']);
+    expect(sent['camera_view'], 'front'); // the default
     final check = (sent['checks'] as List).single;
     expect(check['key'], 'hip_height');
     expect((check['info'], check['amber'], check['red']), (5.0, 15.0, null));

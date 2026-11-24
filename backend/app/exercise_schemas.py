@@ -1,12 +1,17 @@
 import re
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app import pose
 from app.models import Difficulty
 from app.schemas import PersonRef
+
+# Which way the patient faces the camera: some checks only measure what they
+# claim from one side (migration 0015).
+CameraView = Literal["front", "side"]
 
 
 class SeverityCheck(BaseModel):
@@ -59,6 +64,8 @@ class ExerciseCreate(BaseModel):
     movement_pattern: str = Field(min_length=10, max_length=600)
     instructions: str = Field(min_length=10, max_length=800)
     checks: list[SeverityCheck] = Field(min_length=1, max_length=8)
+    # Which way the patient faces the camera: some checks only work from one side.
+    camera_view: CameraView = "front"
 
     @field_validator("target_joints")
     @classmethod
@@ -82,6 +89,7 @@ class ExerciseUpdate(BaseModel):
     movement_pattern: str | None = Field(default=None, min_length=10, max_length=600)
     instructions: str | None = Field(default=None, min_length=10, max_length=800)
     checks: list[SeverityCheck] | None = Field(default=None, min_length=1, max_length=8)
+    camera_view: CameraView | None = None
 
     @field_validator("target_joints")
     @classmethod
@@ -109,6 +117,7 @@ class ExerciseOut(BaseModel):
     movement_pattern: str
     instructions: str
     checks: list[SeverityCheck]
+    camera_view: str = "front"
     is_active: bool
     version: int
     updated_at: datetime

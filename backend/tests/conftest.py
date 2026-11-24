@@ -53,6 +53,8 @@ PASSWORD = "Correct-Horse-9"
 # Names of the exercises the migrations insert, read before the first test
 # empties the tables.
 SEEDED_EXERCISES: list[str] = []
+# Slug -> (camera view, instructions) of those exercises.
+SEEDED_VIEWS: dict[str, tuple[str, str]] = {}
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -68,6 +70,8 @@ def _schema() -> Iterator[None]:
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT name FROM exercise_templates ORDER BY name"))
         SEEDED_EXERCISES.extend(row[0] for row in rows)
+        rows = conn.execute(text("SELECT slug, camera_view, instructions FROM exercise_templates"))
+        SEEDED_VIEWS.update({row[0]: (row[1], row[2]) for row in rows})
     yield
     engine.dispose()
     if _embedded_dir is not None:

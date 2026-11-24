@@ -95,11 +95,15 @@ All numbers are agreement with the expert labels on the two test subjects (2 and
 | Model | Test agreement | Balanced accuracy | How it was chosen |
 |---|---|---|---|
 | `rehab-cnn-202611121625-ae9b9741` (in production locally) | 65.0% | 62.2% | `rehab.crossval`: 6 settings, 4 folds over the 8 non-test subjects; winner mirror + time shift + noise at 20 epochs (67.4% pooled on held-out subjects); then trained on all 8 |
+| `rehab-cnn-202611121625-ae9b9741` on the corrected data | 66.4% | 64.6% | the same model, with the lunge's knee-forward angle measured on the front leg (below) |
+| `rehab-cnn-202611121716-5ff772ab` (candidate, refused by the gate) | 62.8% | 60.3% | the cross-validation winner's settings, retrained on the corrected data |
 | `rehab-cnn-202610120844-23109ddc` (first model) | 60.7% | 60.1% | best epoch on the 2 validation subjects (75.3% there) |
 | `rules-1` with the shipped thresholds | 51.4% | 59.4% | hand-set |
 | always answering "correct" | 60.1% | 50.0% | for comparison |
 
-By exercise, the new model scores: arm abduction 48.8%, push-ups 75.0%, leg abduction 77.4%, leg lunge 58.8%, squats 70.2%. The 85% target is not met.
+By exercise, the production model scores: arm abduction 48.8%, push-ups 75.0%, leg abduction 77.4%, leg lunge 58.8%, squats 70.2% (on the corrected data: 50.0%, 75.0%, 83.3%, 57.5%, 70.2%). The 85% target is not met.
+
+**The lunge's knee-forward fix.** The angle of the shin from vertical was taken from whichever leg came first, which in a side-on lunge was often the back leg (median 77 degrees). It now comes from the front leg, the one whose knee is higher in the picture (median 36 degrees), in both the app (`pose_features.dart`) and the API (`pose_features.py`), held to a new shared test case. `data/reps.npz` was rebuilt (the old one is kept as `reps-v1.npz`). The retrained model (`evaluations/rehab-cnn-202611121716-5ff772ab.json`) did better on lunges (70.0%) and arm abduction (62.2%) but worse on squats (48.8%) and overall; registered as a candidate, the gate refused it (`not_better`: 62.8% against 66.4% on the same test set), so it is not used. The corrected measurement alone does not separate correct from incorrect lunges (median 36.4 against 36.8 degrees).
 
 Cross-validation over the non-test subjects (`evaluations/crossval-202611121624.json`, pooled held-out agreement): baseline 65.8%, mirror 66.7%, mirror + jitter 67.4%, small 65.1%, small + mirror + jitter 65.3%, regularised + mirror + jitter 66.7%. The differences are small: with 10 people the estimate itself moves by a few points.
 
@@ -110,7 +114,7 @@ Cross-validation over the non-test subjects (`evaluations/crossval-202611121624.
 They are **not applied to the app**, because several values are not usable as they stand:
 
 - Arm abduction trunk lean: AMBER at 2.5 degrees. Correct and incorrect repetitions lean almost the same (median 2.3 against 2.4 degrees from the front), so this is fitted noise, and webcam jitter alone exceeds it.
-- Leg lunge knee forward: values of 80 to 98 degrees in the side view, where 20 to 30 is expected, so that measurement needs checking before any threshold is set on it.
+- Leg lunge knee forward: values of 80 to 98 degrees in the side view, where 20 to 30 is expected. The cause was the back leg being measured; fixed (above). Derived again on the corrected data (`evaluations/thresholds-202611121800.json`), AMBER is 56 degrees and test agreement with each check in its own view is 63.7% (all views 53.8%). That is a plausible shin angle, but since correct and incorrect lunges measure alike, it is still a candidate, not applied.
 - Squats mixes checks that need different views (knee valgus from the front; forward lean and depth from the side). One camera cannot give both.
 
 They are candidates for a physiotherapist to review. The first, view-blind derivation (`evaluations/thresholds-202611121608.json`, 67.2% on test) is kept for the record but superseded: it reached that number partly by reading "knee valgus" from the side, where it measures knee bend.

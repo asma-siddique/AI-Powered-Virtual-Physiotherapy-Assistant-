@@ -27,6 +27,12 @@ class PrecheckRequirements(BaseModel):
     min_visibility: float
     min_brightness: float
     hold_ms: int
+    # "front" or "side": which way to face the camera, judged by the width of
+    # the shoulders against the height of the trunk. From the side a joint
+    # needs only its near side in view.
+    camera_view: str = "front"
+    front_min_ratio: float
+    side_max_ratio: float
 
 
 class PrecheckEvidence(BaseModel):
@@ -39,6 +45,9 @@ class PrecheckEvidence(BaseModel):
     visibility: dict[str, float] = Field(max_length=len(pose.LANDMARKS))
     # How long the setup stayed good, in milliseconds.
     held_ms: int = Field(ge=0, le=600_000)
+    # Shoulder width against trunk height during the hold: the least seen
+    # when the exercise faces the camera, the most seen when it is side-on.
+    shoulder_ratio: float | None = Field(default=None, ge=0, le=10)
 
     @field_validator("visibility")
     @classmethod

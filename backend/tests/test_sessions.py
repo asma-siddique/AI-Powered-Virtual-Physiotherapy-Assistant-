@@ -29,6 +29,8 @@ def good_setup(**changes) -> dict:
         "brightness": 0.55,
         "held_ms": 1800,
         "visibility": dict.fromkeys(LEGS, 0.93),
+        # Facing the camera: shoulders wide against the trunk.
+        "shoulder_ratio": 0.7,
     }
     evidence.update(changes)
     return evidence
@@ -406,3 +408,91 @@ def test_only_patients_start_sessions(client, make, case, role):
 
     assert case.start(headers=headers).status_code == 403
     assert case.requirements(headers=headers).status_code == 403
+
+
+# --- Which way the patient faces (camera view) ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("ratio", "problems"),
+    [
+        (0.7, []),
+        (pose.FRONT_MIN_RATIO, []),
+        (0.5, ["facing"]),  # turned partly away
+        (0.05, ["facing"]),  # side-on to the camera
+        (None, ["facing"]),  # nothing said about it: never assumed
+    ],
+)
+def test_an_exercise_done_facing_the_camera_is_refused_side_on(client, db, case, ratio, problems):
+    response = case.start(good_setup(shoulder_ratio=ratio))
+
+    if problems:
+        assert response.status_code == 422
+        assert response.json()["detail"]["problems"] == problems
+        assert sessions(db) == []
+    else:
+        assert response.status_code == 201, response.text
+
+
+def side_on(case, make):
+    """The patient's plan holds one exercise done side-on to the camera."""
+    lunge = make.exercise("Leg Lunge", camera_view="side")
+    case.plan = case.assign("Lunge plan", lunge)
+    return lunge
+
+
+def test_a_side_on_exercise_needs_the_near_side_of_each_joint_only(client, db, case, make):
+    side_on(case, make)
+    requirements = client.get(
+        f"/api/v1/patient/plan/items/{case.item_id}/precheck", headers=case.headers
+    ).json()
+    assert requirements["camera_view"] == "side"
+    assert (requirements["front_min_ratio"], requirements["side_max_ratio"]) == (
+        pose.FRONT_MIN_RATIO,
+        pose.SIDE_MAX_RATIO,
+    )
+    # The far leg is hidden behind the near one.
+    near_only = {name: (0.95 if name.startswith("left_") else 0.2) for name in LEGS}
+
+    response = case.start(good_setup(visibility=near_only, shoulder_ratio=0.05))
+
+    assert response.status_code == 201, response.text
+    stored = sessions(db)[0]
+    assert (stored.precheck["camera_view"], stored.precheck["shoulder_ratio"]) == ("side", 0.05)
+
+
+def test_a_side_on_exercise_still_needs_every_joint_on_one_side(client, db, case, make):
+    side_on(case, make)
+    # Neither knee is clearly in view.
+    hidden_knees = {name: (0.2 if "knee" in name else 0.95) for name in LEGS}
+
+    response = case.start(good_setup(visibility=hidden_knees, shoulder_ratio=0.05))
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["problems"] == ["landmark:left_knee", "landmark:right_knee"]
+
+
+def test_a_side_on_exercise_is_refused_when_the_patient_faces_the_camera(client, db, case, make):
+    side_on(case, make)
+
+    response = case.start(good_setup(shoulder_ratio=0.7))
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["problems"] == ["facing"]
+
+
+def test_the_shipped_exercises_say_which_way_to_face():
+    from tests.conftest import SEEDED_VIEWS
+
+    assert {slug: view for slug, (view, _) in SEEDED_VIEWS.items()} == {
+        "arm-abduction": "front",
+        "leg-abduction": "front",
+        "leg-lunge": "side",
+        "push-ups": "side",
+        "squats": "front",
+    }
+    instructions = {slug: words for slug, (_, words) in SEEDED_VIEWS.items()}
+    assert "facing the camera" in instructions["arm-abduction"]
+    assert instructions["leg-lunge"].startswith("Stand side-on to the camera.")
+    assert instructions["push-ups"].startswith("Set up side-on to the camera.")
+    assert instructions["squats"].startswith("Face the camera.")

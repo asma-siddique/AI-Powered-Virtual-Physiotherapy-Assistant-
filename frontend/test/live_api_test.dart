@@ -23,6 +23,7 @@ import 'package:physioai/features/notifications/notifications_repository.dart';
 import 'package:physioai/features/patient/patient_repository.dart';
 import 'package:physioai/features/physio/physio_repository.dart';
 import 'package:physioai/features/session/live_session.dart';
+import 'package:physioai/features/session/precheck.dart';
 import 'package:physioai/features/session/repetitions.dart';
 
 import 'live_session_test.dart' show armFrame, repFrames;
@@ -262,12 +263,19 @@ void main() {
       Map<String, dynamic> measured({
         double light = 0.6,
         double seen = 0.9,
+        double facing = 0.7,
       }) => {
         'brightness': light,
         'held_ms': needs.holdMs + 100,
         'visibility': {for (final name in needs.requiredLandmarks) name: seen},
+        'shoulder_ratio': facing,
       };
-      for (final poor in [measured(light: 0.05), measured(seen: 0.2)]) {
+      expect(needs.cameraView, CameraView.front);
+      for (final poor in [
+        measured(light: 0.05),
+        measured(seen: 0.2),
+        measured(facing: 0.2), // side-on to an exercise that faces the camera
+      ]) {
         await expectLater(
           patientRepo.startSession(itemId: squatsItem, evidence: poor),
           throwsA(
@@ -526,6 +534,7 @@ void main() {
           'brightness': 0.6,
           'held_ms': needs.holdMs + 100,
           'visibility': {for (final name in needs.requiredLandmarks) name: 0.9},
+          'shoulder_ratio': needs.cameraView == CameraView.side ? 0.2 : 0.7,
         },
       );
       expect(session.status, 'active');
@@ -676,6 +685,7 @@ void main() {
           'brightness': 0.6,
           'held_ms': needs.holdMs + 100,
           'visibility': {for (final name in needs.requiredLandmarks) name: 0.9},
+          'shoulder_ratio': needs.cameraView == CameraView.side ? 0.2 : 0.7,
         },
       );
       await patientRepo.recordRepetition(

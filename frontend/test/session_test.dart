@@ -42,12 +42,29 @@ PrecheckRequirements requirementsFor(
 );
 
 /// The camera at one moment: everyone fully in view unless told otherwise.
+/// Where a person's shoulders and hips sit in the picture, as x and y
+/// fractions. Facing the camera the shoulders are wide against the trunk;
+/// side-on they overlap.
+const _frontTorso = {
+  'left_shoulder': (0.43, 0.35),
+  'right_shoulder': (0.57, 0.35),
+  'left_hip': (0.46, 0.6),
+  'right_hip': (0.54, 0.6),
+};
+const _sideTorso = {
+  'left_shoulder': (0.5, 0.35),
+  'right_shoulder': (0.51, 0.35),
+  'left_hip': (0.5, 0.6),
+  'right_hip': (0.51, 0.6),
+};
+
 PoseFrame frame(
   double timeMs, {
   double brightness = 0.6,
   Set<String> hidden = const {},
   bool nobody = false,
   double visibility = 0.95,
+  bool sideOn = false,
 }) => PoseFrame(
   timeMs: timeMs,
   brightness: brightness,
@@ -55,7 +72,11 @@ PoseFrame frame(
       ? const {}
       : {
           for (final name in poseLandmarkNames)
-            name: Landmark(0.5, 0.5, hidden.contains(name) ? 0.1 : visibility),
+            name: Landmark(
+              (sideOn ? _sideTorso : _frontTorso)[name]?.$1 ?? 0.5,
+              (sideOn ? _sideTorso : _frontTorso)[name]?.$2 ?? 0.5,
+              hidden.contains(name) ? 0.1 : visibility,
+            ),
         },
 );
 

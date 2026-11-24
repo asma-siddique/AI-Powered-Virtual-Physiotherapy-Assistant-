@@ -35,7 +35,9 @@ What each value means:
     body's midline (180 minus the knee angle when the knee is on the midline
     side, 0 when it is on the outside), the larger of the two sides.
   - knee_forward: angle of the shin (ankle to knee) from vertical, for the
-    more bent knee (the front knee in a lunge).
+    front leg: the knee higher in the picture. In a lunge the back knee
+    drops towards the floor and can be the more bent one, with its shin
+    almost flat, so the more bent knee is not the front one.
   - hip_sag: how far the hips are off the shoulder-ankle line
     (180 minus the shoulder-hip-ankle angle), the larger of the two sides.
   - depth: the exercise's working joint angle, the smaller of the two sides;
@@ -209,18 +211,18 @@ def _knee_valgus(frame: _Frame, slug: str) -> float | None:
 
 
 def _knee_forward(frame: _Frame, slug: str) -> float | None:
-    best: tuple[float, float] | None = None  # (knee angle, shin angle)
+    best: tuple[float, float] | None = None  # (knee height, shin angle)
     for side in SIDES:
-        pts = frame.points(f"{side}_hip", f"{side}_knee", f"{side}_ankle")
+        pts = frame.points(f"{side}_knee", f"{side}_ankle")
         if pts is None:
             continue
-        hip, knee, ankle = pts
-        knee_angle = _angle_at(hip, knee, ankle)
+        knee, ankle = pts
         shin = _from_vertical(ankle, knee)
-        if knee_angle is None or shin is None:
+        if shin is None:
             continue
-        if best is None or knee_angle < best[0]:
-            best = (knee_angle, shin)
+        # y grows downwards: the smaller y is the higher knee, the front leg.
+        if best is None or knee[1] < best[0]:
+            best = (knee[1], shin)
     return None if best is None else best[1]
 
 

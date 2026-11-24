@@ -18,6 +18,11 @@ const _bodyAreas = {
   'whole_body': 'Whole body',
 };
 
+const _cameraViews = {
+  'front': 'Facing the camera',
+  'side': 'Side-on to the camera',
+};
+
 /// The joints the pose model can follow, in body order. The API accepts
 /// exactly these names.
 const _jointNames = {
@@ -133,6 +138,7 @@ class _ExerciseFormState extends ConsumerState<_ExerciseForm> {
     text: widget.exercise?.instructions,
   );
   late String _bodyArea = widget.exercise?.bodyArea ?? 'whole_body';
+  late String _cameraView = widget.exercise?.cameraView ?? 'front';
   late final List<_CheckDraft> _checks = [
     for (final check in widget.exercise?.checks ?? const <SeverityCheck>[])
       _CheckDraft(check),
@@ -185,6 +191,7 @@ class _ExerciseFormState extends ConsumerState<_ExerciseForm> {
       'name': _name.text.trim(),
       'domain': _domain.text.trim(),
       'body_area': _bodyArea,
+      'camera_view': _cameraView,
       'primary_targets': _targets.text.trim(),
       'target_joints': _jointList,
       'movement_pattern': _movement.text.trim(),
@@ -366,6 +373,30 @@ class _ExerciseFormState extends ConsumerState<_ExerciseForm> {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 16),
+                LabeledField(
+                  label: 'Camera view',
+                  helper:
+                      'Which way the patient faces the camera. Knee alignment '
+                      'and a sideways lean are only seen from the front; a '
+                      'forward lean, hip sag and depth only from the side.',
+                  child: DropdownButtonFormField<String>(
+                    key: const Key('ex-camera-view'),
+                    initialValue: _cameraViews.containsKey(_cameraView)
+                        ? _cameraView
+                        : 'front',
+                    isExpanded: true,
+                    items: [
+                      for (final entry in _cameraViews.entries)
+                        DropdownMenuItem(
+                          value: entry.key,
+                          child: Text(entry.value),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _cameraView = value ?? _cameraView),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 LabeledField(

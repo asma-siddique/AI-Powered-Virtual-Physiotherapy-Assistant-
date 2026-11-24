@@ -183,6 +183,9 @@ class ExerciseTemplate(Base):
     movement_pattern: Mapped[str] = mapped_column(Text)
     instructions: Mapped[str] = mapped_column(Text)
     checks: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    # "front" or "side": which way the patient faces the camera. Some checks
+    # only measure what they claim from one side (migration 0015).
+    camera_view: Mapped[str] = mapped_column(String(5), default="front", server_default="front")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

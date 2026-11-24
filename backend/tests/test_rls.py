@@ -102,7 +102,12 @@ class Person:
             "/api/v1/patient/sessions",
             json={
                 "plan_exercise_id": item,
-                "precheck": {"brightness": 0.6, "held_ms": 1800, "visibility": dict.fromkeys(landmarks, 0.9)},
+                "precheck": {
+                    "brightness": 0.6,
+                    "held_ms": 1800,
+                    "visibility": dict.fromkeys(landmarks, 0.9),
+                    "shoulder_ratio": 0.7,
+                },
             },
             headers=self.headers,
         )

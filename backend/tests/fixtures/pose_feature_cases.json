@@ -473,6 +473,54 @@
      "shoulder_hike"
     ]
    }
+  },
+  {
+   "name": "lunge_side_back_knee_more_bent",
+   "aspect_ratio": 1.7777777777777777,
+   "exercise_slug": "leg-lunge",
+   "target_joints": [],
+   "check_keys": [
+    "knee_forward"
+   ],
+   "landmarks": {
+    "left_hip": [
+     0.478125,
+     0.55,
+     0.95
+    ],
+    "left_knee": [
+     0.6202158991862067,
+     0.6180922137642275,
+     0.95
+    ],
+    "left_ankle": [
+     0.5625,
+     0.9,
+     0.95
+    ],
+    "right_hip": [
+     0.478125,
+     0.55,
+     0.95
+    ],
+    "right_knee": [
+     0.45000000000000007,
+     0.86,
+     0.95
+    ],
+    "right_ankle": [
+     0.32625,
+     0.74,
+     0.95
+    ]
+   },
+   "expected": {
+    "joint_angles": {},
+    "checks": {
+     "knee_forward": 20
+    },
+    "unsupported": []
+   }
   }
  ]
 }

@@ -194,15 +194,18 @@ double? _kneeValgus(_Frame frame, String slug) {
 }
 
 double? _kneeForward(_Frame frame, String slug) {
-  (double, double)? best; // (knee angle, shin angle)
+  // The front leg: the knee higher in the picture. In a lunge the back knee
+  // drops towards the floor and can be the more bent one, its shin almost
+  // flat, so the more bent knee is not the front one.
+  (double, double)? best; // (knee height, shin angle)
   for (final side in _sides) {
-    final pts = frame.points(['${side}_hip', '${side}_knee', '${side}_ankle']);
+    final pts = frame.points(['${side}_knee', '${side}_ankle']);
     if (pts == null) continue;
-    final [hip, knee, ankle] = pts;
-    final kneeAngle = _angleAt(hip, knee, ankle);
+    final [knee, ankle] = pts;
     final shin = _fromVertical(ankle, knee);
-    if (kneeAngle == null || shin == null) continue;
-    if (best == null || kneeAngle < best.$1) best = (kneeAngle, shin);
+    if (shin == null) continue;
+    // y grows downwards: the smaller y is the higher knee.
+    if (best == null || knee.$2 < best.$1) best = (knee.$2, shin);
   }
   return best?.$2;
 }
