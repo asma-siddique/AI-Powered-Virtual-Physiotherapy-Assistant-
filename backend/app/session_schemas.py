@@ -98,8 +98,9 @@ MAX_SERIES_FRAMES = 900
 
 
 class SeriesSpec(BaseModel):
-    """What the session's classifier needs measured in every frame of a
-    repetition (US 4.1)."""
+    """What the session needs measured in every frame of a repetition: for
+    its classifier (US 4.1), for judging it against the patient's reference,
+    or to keep the first repetitions so a reference can be made from them."""
 
     joints: list[str]
     checks: list[str]
@@ -124,7 +125,8 @@ class RepetitionIn(BaseModel):
     measures: dict[str, float | None] = Field(max_length=20)
     # Only when the session asks for it (its `series`): what was measured in
     # each frame of the repetition, one value per channel, null where it could
-    # not be measured. Read by the classifier and not stored.
+    # not be measured. Read by the session's scorer; only the first
+    # repetitions of a session keep them, resampled (app.personal).
     frames: list[list[float | None]] | None = Field(default=None, min_length=2, max_length=MAX_SERIES_FRAMES)
 
     @field_validator("frames")
@@ -247,6 +249,7 @@ class ClinicianNoteIn(BaseModel):
 
 
 class RepetitionDetail(BaseModel):
+    id: uuid.UUID
     set_number: int
     rep_number: int
     started_ms: int
@@ -254,6 +257,15 @@ class RepetitionDetail(BaseModel):
     tier: str
     feedback: list[FeedbackItem]
     unmeasured: list[str]
+    # Its joint angles were kept, so it can be made part of the patient's
+    # reference for this exercise.
+    can_be_reference: bool = False
+    # It is part of the patient's current reference for this exercise.
+    in_reference: bool = False
+    # How far it was from the reference it was judged against, in degrees.
+    reference_distance: float | None = None
+    # Whether the session's scorer judged it done correctly; None when none did.
+    judged_correct: bool | None = None
 
 
 class SessionDetail(SessionBrief):
@@ -264,6 +276,8 @@ class SessionDetail(SessionBrief):
     checks: list[SeverityCheck]
     scored_repetitions: int | None
     repetitions: list[RepetitionDetail]
+    # The exercise can be judged against a patient's own reference.
+    reference_supported: bool = False
     patient_note: str | None = None
     clinician_note: str | None = None
     clinician_note_at: datetime | None = None
@@ -305,3 +319,36 @@ class SessionOut(BaseModel):
     series: SeriesSpec | None = None
     # Set once the session has ended.
     summary: SessionSummary | None = None
+
+
+class ReferenceIn(BaseModel):
+    """Two repetitions of one exercise the physiotherapist saw done correctly."""
+
+    repetition_ids: list[uuid.UUID] = Field(min_length=2, max_length=2)
+
+    @field_validator("repetition_ids")
+    @classmethod
+    def _different(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("choose two different repetitions")
+        return value
+
+
+class ReferenceRepetition(BaseModel):
+    id: uuid.UUID
+    session_id: uuid.UUID
+    session_started_at: datetime
+    set_number: int
+    rep_number: int
+
+
+class ReferenceOut(BaseModel):
+    """A patient's current reference for one exercise."""
+
+    id: uuid.UUID
+    exercise: ExerciseBrief
+    repetitions: list[ReferenceRepetition]
+    created_at: datetime
+    created_by: PersonRef
+    # How many sessions have been judged against it so far.
+    sessions_judged: int

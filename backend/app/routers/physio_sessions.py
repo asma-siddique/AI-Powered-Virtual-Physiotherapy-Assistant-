@@ -4,9 +4,16 @@ from typing import Literal
 
 from fastapi import APIRouter, Request, Response, status
 
-from app import audit, clock, errors, plan_service, report, review_service, session_service
+from app import audit, clock, errors, plan_service, reference_service, report, review_service, session_service
 from app.deps import DbSession, PhysioUser, client_ip
-from app.session_schemas import ClinicianNoteIn, FlaggedSession, SessionBrief, SessionDetail
+from app.session_schemas import (
+    ClinicianNoteIn,
+    FlaggedSession,
+    ReferenceIn,
+    ReferenceOut,
+    SessionBrief,
+    SessionDetail,
+)
 
 router = APIRouter(prefix="/physio", tags=["physiotherapist: sessions"])
 
@@ -49,6 +56,33 @@ def list_patient_sessions(
     """The ended sessions of one of the physiotherapist's own patients."""
     patient = plan_service.patient_on_roster(db, physio.id, patient_id)
     return session_service.history(db, patient.id, exercise_id=exercise_id, since=since, until=until)
+
+
+@router.get("/patients/{patient_id}/references", response_model=list[ReferenceOut])
+def list_references(patient_id: uuid.UUID, physio: PhysioUser, db: DbSession) -> list[ReferenceOut]:
+    """The patient's own references in force, one per exercise at most."""
+    return reference_service.listing(db, physio, patient_id)
+
+
+@router.post(
+    "/patients/{patient_id}/references", response_model=ReferenceOut, status_code=status.HTTP_201_CREATED
+)
+def set_reference(
+    patient_id: uuid.UUID, body: ReferenceIn, physio: PhysioUser, request: Request, db: DbSession
+) -> ReferenceOut:
+    """Makes the patient's reference for an exercise from two of their
+    repetitions the physiotherapist saw done correctly. Sessions of that
+    exercise started from now on are judged against it."""
+    return reference_service.set_reference(db, physio, patient_id, body.repetition_ids, client_ip(request))
+
+
+@router.delete("/patients/{patient_id}/references/{reference_id}", status_code=status.HTTP_204_NO_CONTENT)
+def retire_reference(
+    patient_id: uuid.UUID, reference_id: uuid.UUID, physio: PhysioUser, request: Request, db: DbSession
+) -> Response:
+    """Stops judging the patient against this reference; it is kept on record."""
+    reference_service.retire(db, physio, patient_id, reference_id, client_ip(request))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put("/sessions/{session_id}/note", response_model=SessionDetail)

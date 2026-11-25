@@ -359,6 +359,9 @@ class ExerciseSession(Base):
     # From the start of the session: the model that is to score it. A session
     # keeps the model it started with, whatever is promoted meanwhile.
     scoring_version: Mapped[str | None] = mapped_column(String(80))
+    # The patient's reference the session is judged against, when it is
+    # scored by app.personal (migration 0016).
+    reference_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("exercise_references.id"))
     # Set when the session needs a physiotherapist's attention: a RED
     # repetition ("red") or a score below the threshold in force ("low_score").
     flagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -411,6 +414,44 @@ class SessionRepetition(Base):
     # to 1, and which model said so. Empty when no classifier judged it.
     correct_probability: Mapped[float | None] = mapped_column(Float)
     model_version: Mapped[str | None] = mapped_column(String(80))
+    # The repetition's joint angles, resampled (app.personal.encode), kept for
+    # the first repetitions of a session so a physiotherapist can make the
+    # patient's reference from them. Angles only, never a picture.
+    series: Mapped[list[list[float | None]] | None] = deferred(mapped_column(JSON(none_as_null=True)))
+    # How far it was from the patient's reference, in degrees, when the
+    # session was judged against one.
+    reference_distance: Mapped[float | None] = mapped_column(Float)
+
+
+class ExerciseReference(Base):
+    """A patient's own correct way of doing one exercise: two repetitions a
+    physiotherapist saw done correctly, averaged (app.personal). Later
+    sessions of that exercise are judged against it. Setting a new one
+    retires the old one, which is kept, so every session can still be traced
+    to the reference that judged it."""
+
+    __tablename__ = "exercise_references"
+    __table_args__ = (
+        Index(
+            "uq_exercise_references_current",
+            "patient_id",
+            "exercise_template_id",
+            unique=True,
+            postgresql_where=text("retired_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    patient_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    exercise_template_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercise_templates.id"))
+    # The repetitions it was made from.
+    repetition_ids: Mapped[list[str]] = mapped_column(JSON)
+    # Their mean, as app.personal.encode stores a repetition.
+    series: Mapped[list[list[float | None]]] = deferred(mapped_column(JSON))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retired_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
 
 
 class Notification(Base):

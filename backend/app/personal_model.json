@@ -1,0 +1,76 @@
+{
+  "version": "personal-2",
+  "exercises": {
+    "arm-abduction": {
+      "cut": 1.4841,
+      "spreads": {
+        "left_shoulder": 0.794,
+        "right_shoulder": 6.579,
+        "left_elbow": 1.238,
+        "right_elbow": 2.71,
+        "left_hip": 0.755,
+        "right_hip": 0.578,
+        "trunk_lean": 0.5,
+        "elbow_bend": 2.616
+      }
+    },
+    "leg-abduction": {
+      "cut": 1.8392,
+      "spreads": {
+        "left_hip": 2.856,
+        "right_hip": 2.696,
+        "left_knee": 1.68,
+        "right_knee": 1.129,
+        "left_ankle": 4.083,
+        "right_ankle": 4.479,
+        "trunk_lean": 2.131,
+        "knee_bend": 1.323
+      }
+    },
+    "leg-lunge": {
+      "cut": 1.6339,
+      "spreads": {
+        "left_hip": 5.86,
+        "right_hip": 8.689,
+        "left_knee": 7.139,
+        "right_knee": 9.474,
+        "left_ankle": 5.917,
+        "right_ankle": 5.061,
+        "knee_valgus": 8.038,
+        "knee_forward": 4.39,
+        "trunk_lean": 1.657
+      }
+    },
+    "push-ups": {
+      "cut": 2.724,
+      "spreads": {
+        "left_shoulder": 1.0,
+        "right_shoulder": 5.742,
+        "left_elbow": 1.0,
+        "right_elbow": 6.946,
+        "left_hip": 0.5,
+        "right_hip": 2.925,
+        "left_knee": 0.5,
+        "right_knee": 1.218,
+        "left_ankle": 1.765,
+        "right_ankle": 2.697,
+        "hip_sag": 2.977,
+        "depth": 6.946
+      }
+    },
+    "squats": {
+      "cut": 2.0392,
+      "spreads": {
+        "left_hip": 3.173,
+        "right_hip": 2.528,
+        "left_knee": 4.198,
+        "right_knee": 1.876,
+        "left_ankle": 2.676,
+        "right_ankle": 2.671,
+        "knee_valgus": 0.5,
+        "trunk_lean": 0.741,
+        "depth": 3.906
+      }
+    }
+  }
+}

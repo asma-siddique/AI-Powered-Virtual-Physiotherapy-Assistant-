@@ -9,6 +9,7 @@ import '../../core/widgets/common.dart';
 import '../auth/auth_controller.dart';
 import '../shell/page_widgets.dart';
 import 'physio_repository.dart';
+import 'reference_dialog.dart';
 import 'report_dialog.dart';
 
 class PhysioDashboardPage extends ConsumerWidget {
@@ -245,9 +246,17 @@ class _InviteRow extends StatelessWidget {
 }
 
 class _PatientRow extends StatelessWidget {
-  const _PatientRow({required this.patient, this.onPlan, this.onReport});
+  const _PatientRow({
+    required this.patient,
+    this.onPlan,
+    this.onReport,
+    this.onReference,
+  });
 
   final PatientSummary patient;
+
+  /// Opens the patient's own references; shown as a button when set.
+  final VoidCallback? onReference;
 
   /// Opens the report export for this patient; shown as a button when set.
   final VoidCallback? onReport;
@@ -326,6 +335,12 @@ class _PatientRow extends StatelessWidget {
                 child: const Text('Plan'),
               ),
             ],
+            if (onReference != null)
+              TextButton(
+                key: Key('reference-for-${patient.id}'),
+                onPressed: onReference,
+                child: const Text('Reference'),
+              ),
             if (onReport != null)
               TextButton(
                 key: Key('report-for-${patient.id}'),
@@ -374,6 +389,10 @@ class PhysioPatientsPage extends ConsumerWidget {
                   onReport: () => showDialog<void>(
                     context: context,
                     builder: (context) => ReportDialog(patient: patient),
+                  ),
+                  onReference: () => showDialog<void>(
+                    context: context,
+                    builder: (context) => ReferenceDialog(patient: patient),
                   ),
                 ),
           ],

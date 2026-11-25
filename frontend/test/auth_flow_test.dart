@@ -192,8 +192,61 @@ class FakePhysioRepository implements PhysioRepository {
     return session(id);
   }
 
+  /// Finished sessions by patient id, as the physiotherapist lists them.
+  final sessionsByPatient = <String, List<SessionBrief>>{};
+
   @override
-  Future<List<SessionBrief>> patientSessions(String patientId) async => [];
+  Future<List<SessionBrief>> patientSessions(String patientId) async =>
+      List.of(sessionsByPatient[patientId] ?? const []);
+
+  /// References in force by patient id; what was made and retired.
+  final referencesByPatient = <String, List<ExerciseReference>>{};
+  final referencesMade = <({String patientId, List<String> ids})>[];
+  final referencesRetired = <String>[];
+  ApiException? referenceFailure;
+
+  @override
+  Future<List<ExerciseReference>> references(String patientId) async =>
+      List.of(referencesByPatient[patientId] ?? const []);
+
+  @override
+  Future<ExerciseReference> setReference(
+    String patientId,
+    List<String> repetitionIds,
+  ) async {
+    if (referenceFailure != null) throw referenceFailure!;
+    referencesMade.add((patientId: patientId, ids: repetitionIds));
+    final session = sessionDetails.values.firstWhere(
+      (s) => s.repetitions.any((r) => r.id == repetitionIds.first),
+    );
+    final made = ExerciseReference(
+      id: 'reference-${referencesMade.length}',
+      exercise: session.exercise,
+      repetitions: [
+        for (final r in session.repetitions)
+          if (repetitionIds.contains(r.id))
+            (
+              sessionStartedAt: session.startedAt,
+              setNumber: r.setNumber,
+              repNumber: r.repNumber,
+            ),
+      ],
+      createdAt: DateTime.utc(2026, 11, 24, 10),
+      createdBy: const PersonRef(id: 'physio-1', fullName: 'Dr. Sarah Malik'),
+    );
+    referencesByPatient[patientId] = [
+      for (final r in referencesByPatient[patientId] ?? <ExerciseReference>[])
+        if (r.exercise.id != made.exercise.id) r,
+      made,
+    ];
+    return made;
+  }
+
+  @override
+  Future<void> retireReference(String patientId, String referenceId) async {
+    referencesRetired.add(referenceId);
+    referencesByPatient[patientId]?.removeWhere((r) => r.id == referenceId);
+  }
 
   final notes = <({String sessionId, String note})>[];
   ApiException? noteFailure;

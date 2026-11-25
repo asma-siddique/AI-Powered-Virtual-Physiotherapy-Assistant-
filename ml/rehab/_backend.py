@@ -11,7 +11,7 @@ BACKEND = Path(__file__).resolve().parents[2] / "backend"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from app import classifier, scoring, severity  # noqa: E402
+from app import classifier, personal, scoring, severity  # noqa: E402
 from app.pose import LANDMARKS, MIN_VISIBILITY  # noqa: E402
 from app.pose_features import depth_shortfall, frame_features  # noqa: E402
 
@@ -20,6 +20,7 @@ __all__ = [
     "LANDMARKS",
     "MIN_VISIBILITY",
     "classifier",
+    "personal",
     "depth_shortfall",
     "frame_features",
     "scoring",
