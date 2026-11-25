@@ -25,6 +25,7 @@ import 'package:physioai/features/physio/physio_repository.dart';
 import 'package:physioai/features/session/live_session.dart';
 import 'package:physioai/features/session/precheck.dart';
 import 'package:physioai/features/session/repetitions.dart';
+import 'package:physioai/features/session/session_records.dart';
 
 import 'live_session_test.dart' show armFrame, repFrames;
 
@@ -448,6 +449,45 @@ void main() {
           throwsA(isA<ApiException>().having((e) => e.code, 'code', code));
       final stamp = DateTime.now().millisecondsSinceEpoch;
 
+      // The thresholds learned from REHAB24-6 (migration 0017) leave Arm
+      // Abduction with no check that can pause: none of its checks tells
+      // incorrect from correct from the front. To exercise the safety pause
+      // end to end, an admin gives trunk lean a RED for this test and puts
+      // the thresholds back afterwards.
+      final adminApi = _client();
+      await AuthRepository(adminApi).signIn(
+        identifier: _adminEmail,
+        password: _adminPassword,
+        role: UserRole.admin,
+      );
+      final library = ExerciseLibraryRepository(adminApi);
+      final armTemplate = (await library.all()).firstWhere(
+        (e) => e.name == 'Arm Abduction',
+      );
+      Map<String, dynamic> checkJson(SeverityCheck c, {double? red}) => {
+        'key': c.key,
+        'label': c.label,
+        'measure': c.measure,
+        'unit': c.unit,
+        'info': c.info,
+        'amber': c.amber,
+        'red': red ?? c.red,
+        'corrective_message': c.correctiveMessage,
+      };
+      final shippedChecks = [for (final c in armTemplate.checks) checkJson(c)];
+      await library.update(armTemplate.id, {
+        'checks': [
+          for (final c in armTemplate.checks)
+            checkJson(
+              c,
+              red: c.key == 'trunk_lean' && c.red == null ? c.amber + 10 : null,
+            ),
+        ],
+      });
+      addTearDown(
+        () => library.update(armTemplate.id, {'checks': shippedChecks}),
+      );
+
       // A physiotherapist prescribes Arm Abduction to a new patient.
       final physioApi = _client();
       await AuthRepository(physioApi).signIn(
@@ -555,8 +595,12 @@ void main() {
         repsPerSet: needs.reps,
         minVisibility: needs.minVisibility,
         aspectRatio: 4 / 3,
+        // As the screen does: the session says which angles to send with
+        // each repetition, so its first ones can become a reference.
+        series: session.series,
       );
       expect(engine.canCount, isTrue);
+      expect(session.series, isNotNull);
       var clock = 0.0;
       RepetitionDraft perform({double lean = 0, double bend = 0}) {
         final drafts = [
@@ -725,6 +769,74 @@ void main() {
         (await physioRepo.patientSessions(patient.account.id)).map((s) => s.id),
         [second.id, session.id],
       );
+      // The patient's own reference: the physiotherapist makes it from two
+      // repetitions of the first session, and the next session is judged
+      // against it.
+      final supervised = await physioRepo.session(session.id);
+      expect(supervised.referenceSupported, isTrue);
+      final usable = [
+        for (final r in supervised.repetitions)
+          if (r.canBeReference && r.tier != FeedbackTier.red) r,
+      ];
+      expect(usable.length, greaterThanOrEqualTo(2));
+      final red = supervised.repetitions.firstWhere(
+        (r) => r.tier == FeedbackTier.red,
+      );
+      await expectLater(
+        physioRepo.setReference(patient.account.id, [usable[0].id, red.id]),
+        refusedWith('reference_red'),
+      );
+      final reference = await physioRepo.setReference(patient.account.id, [
+        usable[0].id,
+        usable[1].id,
+      ]);
+      expect(reference.exercise.id, exercise.id);
+      expect(
+        [for (final r in await physioRepo.references(patient.account.id)) r.id],
+        [reference.id],
+      );
+      expect(
+        (await physioRepo.session(
+          session.id,
+        )).repetitions.where((r) => r.inReference).map((r) => r.id),
+        [usable[0].id, usable[1].id],
+      );
+      final judged = await patientRepo.startSession(
+        itemId: item.id,
+        evidence: {
+          'brightness': 0.6,
+          'held_ms': needs.holdMs + 100,
+          'visibility': {for (final name in needs.requiredLandmarks) name: 0.9},
+          'shoulder_ratio': needs.cameraView == CameraView.side ? 0.2 : 0.7,
+        },
+      );
+      final again = LiveSessionEngine(
+        exerciseSlug: needs.exercise.slug,
+        targetJoints: needs.exercise.targetJoints,
+        checkKeys: [for (final check in judged.checks) check.key],
+        sets: needs.sets,
+        repsPerSet: needs.reps,
+        minVisibility: needs.minVisibility,
+        aspectRatio: 4 / 3,
+        series: judged.series,
+      );
+      final drafts = [
+        for (final frame in repFrames(clock)) ?again.add(frame, frame.timeMs),
+      ];
+      clock += 1000;
+      final clean = await patientRepo.recordRepetition(
+        sessionId: judged.id,
+        repetition: drafts.single,
+      );
+      expect(clean.judgedCorrect, isNotNull);
+      final judgedSummary = (await patientRepo.endSession(judged.id)).summary!;
+      expect(judgedSummary.scoringVersion, personalScoringVersion);
+      final judgedDetail = await physioRepo.session(judged.id);
+      expect(judgedDetail.judgedAgainstReference, isTrue);
+      expect(judgedDetail.repetitions.single.referenceDistance, isNotNull);
+      await physioRepo.retireReference(patient.account.id, reference.id);
+      expect(await physioRepo.references(patient.account.id), isEmpty);
+
       final reviewed = await physioRepo.markSessionReviewed(session.id);
       expect(reviewed.isReviewed, isTrue);
       expect(
@@ -798,12 +910,6 @@ void main() {
       );
 
       // The pause and its acknowledgment are on the audit trail.
-      final adminApi = _client();
-      await AuthRepository(adminApi).signIn(
-        identifier: _adminEmail,
-        password: _adminPassword,
-        role: UserRole.admin,
-      );
       expect(
         (await AdminRepository(adminApi).auditLog()).map((e) => e.action),
         containsAll([

@@ -175,6 +175,7 @@ class SessionBrief {
 /// One repetition of a stored session.
 class RepetitionDetail {
   const RepetitionDetail({
+    this.id = '',
     required this.setNumber,
     required this.repNumber,
     required this.startedMs,
@@ -182,10 +183,15 @@ class RepetitionDetail {
     required this.tier,
     this.feedback = const [],
     this.unmeasured = const [],
+    this.canBeReference = false,
+    this.inReference = false,
+    this.referenceDistance,
+    this.judgedCorrect,
   });
 
   factory RepetitionDetail.fromJson(Map<String, dynamic> json) =>
       RepetitionDetail(
+        id: json['id'] as String? ?? '',
         setNumber: json['set_number'] as int,
         repNumber: json['rep_number'] as int,
         startedMs: json['started_ms'] as int,
@@ -199,8 +205,13 @@ class RepetitionDetail {
           for (final key in json['unmeasured'] as List<dynamic>? ?? const [])
             key as String,
         ],
+        canBeReference: json['can_be_reference'] as bool? ?? false,
+        inReference: json['in_reference'] as bool? ?? false,
+        referenceDistance: (json['reference_distance'] as num?)?.toDouble(),
+        judgedCorrect: json['judged_correct'] as bool?,
       );
 
+  final String id;
   final int setNumber;
   final int repNumber;
   final int startedMs;
@@ -208,7 +219,23 @@ class RepetitionDetail {
   final FeedbackTier tier;
   final List<RepetitionFeedback> feedback;
   final List<String> unmeasured;
+
+  /// Its joint angles were kept, so it can be part of the patient's reference.
+  final bool canBeReference;
+
+  /// It is part of the patient's current reference for this exercise.
+  final bool inReference;
+
+  /// How far it was from the reference it was judged against, in units of
+  /// the patient's normal variation on each joint (backend app/personal.py).
+  final double? referenceDistance;
+
+  /// Whether the session's scorer judged it done correctly; null when none did.
+  final bool? judgedCorrect;
 }
+
+/// Judged against the patient's own reference (backend app/personal.py).
+const personalScoringVersion = 'personal-2';
 
 /// Everything about one session.
 class SessionDetail extends SessionBrief {
@@ -234,6 +261,7 @@ class SessionDetail extends SessionBrief {
     this.patientNote,
     this.clinicianNote,
     this.clinicianNoteAt,
+    this.referenceSupported = false,
   });
 
   factory SessionDetail.fromJson(Map<String, dynamic> json) {
@@ -256,6 +284,7 @@ class SessionDetail extends SessionBrief {
       painAfter: brief.painAfter,
       hasNotes: brief.hasNotes,
       patientNote: json['patient_note'] as String?,
+      referenceSupported: json['reference_supported'] as bool? ?? false,
       clinicianNote: json['clinician_note'] as String?,
       clinicianNoteAt: DateTime.tryParse(
         json['clinician_note_at'] as String? ?? '',
@@ -283,6 +312,11 @@ class SessionDetail extends SessionBrief {
   /// The physiotherapist's own note on the session.
   final String? clinicianNote;
   final DateTime? clinicianNoteAt;
+
+  /// The exercise can be judged against a patient's own reference.
+  final bool referenceSupported;
+
+  bool get judgedAgainstReference => scoringVersion == personalScoringVersion;
 }
 
 /// A session in a physiotherapist's flagged queue (US 5.2).

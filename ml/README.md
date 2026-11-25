@@ -107,19 +107,72 @@ By exercise, the production model scores: arm abduction 48.8%, push-ups 75.0%, l
 
 Cross-validation over the non-test subjects (`evaluations/crossval-202611121624.json`, pooled held-out agreement): baseline 65.8%, mirror 66.7%, mirror + jitter 67.4%, small 65.1%, small + mirror + jitter 65.3%, regularised + mirror + jitter 66.7%. The differences are small: with 10 people the estimate itself moves by a few points.
 
-### Thresholds derived from the labels (`rehab.thresholds`)
+### The patient's own reference (`rehab.personal`, in the app as `personal-2`)
 
-`evaluations/thresholds-202611121614.json` sets each check's AMBER from the 8 non-test subjects, reading each check only in the camera view where it means what it says (`CHECK_VIEW`). On the test subjects agreement goes from 55.2% to 62.6% with each check in its own view, and from 51.4% to 54.1% with every check in every view, as the app reads them today.
+Why the classifier stalls: the dataset's description says the physiotherapist "suggested different exercise mistakes for each subject". Within one person, correct and incorrect repetitions do differ, but how they differ changes from person to person (for front-view arm abduction, person 2's incorrect repetitions raise the arm higher, person 9's lower). A model judging people it has never seen learns the training people's mistakes; on front-view arm abduction the production classifier gets 2 of 21 test repetitions right, confidently the wrong way round.
 
-They are **not applied to the app**, because several values are not usable as they stand:
+What works: judge each repetition by its distance from the same person's own first correct repetitions. For each recording, only repetitions filmed from the side the app asks for are used (the camera angle is labelled per repetition: people sometimes turn mid-recording). The reference is the mean of the first 2 correct ones. The distance (`app.personal.distance`, the function the API runs) is taken over the exercise's own channels (its target joints on both sides and its checks); on each channel the difference is divided by its spread, how much correct repetitions typically differ from their own reference there (median, learned, at least 0.5 degrees), and the distance is the mean of those. The cut per exercise is the one with the best balanced accuracy. Spreads and cuts are learned from the data; the API loads them from `backend/app/personal_model.json`, written by `--ship`.
 
-- Arm abduction trunk lean: AMBER at 2.5 degrees. Correct and incorrect repetitions lean almost the same (median 2.3 against 2.4 degrees from the front), so this is fitted noise, and webcam jitter alone exceeds it.
-- Leg lunge knee forward: values of 80 to 98 degrees in the side view, where 20 to 30 is expected. The cause was the back leg being measured; fixed (above). Derived again on the corrected data (`evaluations/thresholds-202611121800.json`), AMBER is 56 degrees and test agreement with each check in its own view is 63.7% (all views 53.8%). That is a plausible shin angle, but since correct and incorrect lunges measure alike, it is still a candidate, not applied.
-- Squats mixes checks that need different views (knee valgus from the front; forward lean and depth from the side). One camera cannot give both.
+```
+python -m rehab.personal --data data/reps.npz --segmentation data/Segmentation.csv \
+    --model models/rehab-cnn-202611121625-ae9b9741 --ship ../backend/app/personal_model.json
+```
 
-They are candidates for a physiotherapist to review. The first, view-blind derivation (`evaluations/thresholds-202611121608.json`, 67.2% on test) is kept for the record but superseded: it reached that number partly by reading "knee valgus" from the side, where it measures knee bend.
+| | Agreement | Balanced |
+|---|---|---|
+| Cross-validation, 8 non-test subjects (each fold's spreads and cuts from the other folds), 308 reps | 78.2% | 78.2% |
+| **Test subjects, learned on all 8 others, 79 reps** | **83.5%** | **84.0%** |
+| Production classifier on the same 79 test reps | 63.3% | 63.2% |
+| Always "correct" on them | 51.9% | 50% |
 
-A note on the test subjects: they have been scored four times in all (the first model, the view-blind and the view-aware thresholds, this model). Every choice of settings or thresholds was made on the other eight subjects; the test numbers were not used to choose anything.
+By exercise on test: push-ups 100%, leg abduction 93.8%, arm abduction 88.2%, lunge 75%, squats 62.5%. Recorded in `evaluations/personal-2.json`; `backend/tests/test_personal.py` holds the API's shipped model to it.
+
+How the variant was chosen, on the 8 non-test subjects only (cross-validated balanced accuracy): every channel, plain degrees (the first version, `personal-1`) 75.6%; the exercise's own channels 77.9%; every channel scaled by its spread 77.9%; **own channels scaled by spread 78.2%**; root-mean-square or 90th percentile instead of the mean, the largest difference per channel, or a time-warped alignment (DTW): 70.9 to 78.1%. Choosing the variant per exercise inside the training folds gave 78.4%, no better within the noise, so the single simpler variant was kept. Adding the threshold checks to the distance in a logistic regression made it worse (73.9%). The choice was made before the test subjects were scored.
+
+Checked before trusting it:
+
+- **Not just "later in the recording".** Every recording has its correct repetitions first, so distance could have measured drift. It does not: correct repetitions stay about 4 degrees from the reference all the way through, and the distance jumps to about 10 degrees at the first incorrect one, and stays there.
+- **How many reference repetitions:** 1 gives 71.6%, 2 gives 76.0%, 3 gives 74.2% (cross-validation, first version). 2 it is.
+- **Tried and not better:** the classifier trained on the app's view only (63.6% cross-validated, against 66.1% for all views); the classifier fed each repetition's difference from the reference (74.8% at its best epoch, 62.0% at a fixed one: unstable); a logistic regression on per-channel differences (70.1%).
+
+Limits: the honest expectation for new people is the cross-validated **78%**; 83.5% is on 79 test repetitions, a small number, so the true figure could be several points either way. Squats is the weak exercise (62.5% on test). In the dataset the reference and the judged repetitions are in the same recording; in the app the reference comes from an earlier, supervised session, possibly with a slightly different camera position. That has not been measured.
+
+### Thresholds learned from the labels (`rehab.thresholds`, in the app since migration 0017)
+
+```
+python -m rehab.thresholds --data data/reps.npz --segmentation data/Segmentation.csv \
+    --landmarks data/landmarks --out evaluations/thresholds-app-view.json
+```
+
+Every level is learned from the 8 non-test subjects' labelled repetitions, filmed from the side the app films each exercise from (migration 0015), because that is how the app measures them:
+
+- **Does the check carry signal?** Its separation (the chance an incorrect repetition measures higher than a correct one; 0.5 is none) with a bootstrap 95% interval. Only a check whose interval lies above 0.5 counts.
+- **AMBER:** for a check with signal, the value with the best balanced accuracy against the labels; for one without, just above the 98th percentile of correct repetitions, so it only warns beyond what they do.
+- **INFO:** the 75th percentile of correct repetitions.
+- **RED:** for a check with signal, the 98th percentile of correct repetitions (above AMBER). A check without signal cannot pause a session: nothing in the data links it to incorrect form.
+
+| Exercise | Check | Separation (95% interval) | INFO / AMBER / RED, shipped → learned |
+|---|---|---|---|
+| Arm abduction | trunk lean | 0.52 (0.37–0.66), none | 5 / 10 / 20 → 2.5 / 4 / none |
+| Arm abduction | elbow straightness | 0.48 (0.34–0.64), none | 10 / 20 / none → 26 / 37 / none |
+| Leg abduction | trunk lean | **0.79 (0.69–0.87)** | 5 / 10 / 20 → 17 / 19 / 21 |
+| Leg abduction | leg straightness | **0.81 (0.71–0.89)** | 10 / 20 / none → 11 / 13.5 / none |
+| Leg lunge | knee alignment | 0.32 (0.19–0.45), reversed | 5 / 10 / 15 → 101 / 112 / none |
+| Leg lunge | knee position | 0.41 (0.28–0.56), none | 10 / 20 / 30 → 46 / 57.5 / none |
+| Leg lunge | back posture | 0.56 (0.41–0.69), none | 10 / 20 / none → 13.5 / 18.5 / none |
+| Push-ups | body line | **0.82 (0.73–0.91)** | 5 / 12 / 20 → 25 / 31 / 33 |
+| Push-ups | depth | 0.57 (0.46–0.69), none | 10 / 25 / none → 22 / 45 / none |
+| Squats | knee alignment | **0.71 (0.58–0.84)** | 5 / 10 / 15 → 3 / 5 / 10 |
+| Squats | back posture | 0.55 (0.39–0.69), none | 10 / 20 / 30 → 5 / 8.5 / none |
+| Squats | depth | 0.35 (0.21–0.49), reversed | 10 / 25 / none → 56.5 / 70.5 / none |
+
+On the test subjects, filmed the app's way, a repetition with no check at AMBER counted as correct agrees with the labels **75.8%** of the time (balanced 75.9%), against **58.6%** with the shipped values. How often they pause (RED) on the test subjects' repetitions: shipped values paused every lunge repetition and 72% of push-ups, 15 of 61 correct repetitions in all; learned values pause 40% of leg abductions and 39% of push-ups, 1 of 61 correct repetitions.
+
+What the table says about the checks themselves: 4 of 12 tell incorrect from correct from the side the app films. "Reversed" means a higher value goes with *correct* form: from the side, the lunge's "knee alignment" measures knee bend, so a deep, correct lunge reads high; from the front, the squat's "depth" is foreshortened. Arm abduction and the lunge are left without a check that can pause a session. That follows from the data, but it is a safety decision a physiotherapist should confirm; an admin can set any level under Admin > Exercise Library.
+
+The earlier derivations are kept for the record and superseded: `thresholds-202611121608.json` (view-blind) and `thresholds-202611121614.json` / `thresholds-202611121800.json` (each check in its own ideal view, which is not how the app films).
+
+A note on the test subjects: they have been scored several times (each model, each threshold derivation, `personal-1` and `personal-2`). Every choice of settings, variants or thresholds was made on the other eight subjects; the test numbers were not used to choose anything.
 
 ## Not yet done
 

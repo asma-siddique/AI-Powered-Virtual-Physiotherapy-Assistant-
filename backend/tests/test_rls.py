@@ -15,12 +15,13 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from app import clock, disclaimer, pose, rls, session_service
+from app import clock, disclaimer, personal, pose, rls, session_service
 from app.db import Base, get_engine
 from app.models import (
     Account,
     ConsentRecord,
     ExercisePlan,
+    ExerciseReference,
     ExerciseSession,
     Notification,
     PatientAssignment,
@@ -35,6 +36,7 @@ from tests.conftest import bearer, sign_in
 PROTECTED = {
     "consents",
     "exercise_plans",
+    "exercise_references",
     "exercise_sessions",
     "notifications",
     "patient_assignments",
@@ -57,7 +59,9 @@ EXEMPT = {
     "model_promotions": "admins' decisions about models; nothing about any patient",
 }
 # The clinical tables: what a patient did and was prescribed.
-CLINICAL = [ExercisePlan, PlanExercise, ExerciseSession, SessionRepetition]
+CLINICAL = [ExercisePlan, PlanExercise, ExerciseSession, SessionRepetition, ExerciseReference]
+# Rows each test person has in each of them: two repetitions make the reference.
+PER_PERSON = {SessionRepetition: 2}
 
 
 @contextlib.contextmanager
@@ -76,8 +80,9 @@ def count(session: Session, model, *where) -> int:
 
 
 class Person:
-    """A patient with a plan, an acknowledged advisory, a session with one
-    repetition, and a reminder setting: a row in every protected table."""
+    """A patient with a plan, an acknowledged advisory, a session with two
+    repetitions that their physiotherapist made their reference, and a
+    reminder setting: a row in every protected table."""
 
     def __init__(self, client, make, physio: Account, exercise) -> None:
         self.account = make.patient_of(physio)
@@ -113,19 +118,29 @@ class Person:
         )
         assert started.status_code == 201, started.text
         self.session_id = uuid.UUID(started.json()["id"])
-        rep = client.post(
-            f"/api/v1/patient/sessions/{self.session_id}/repetitions",
-            json={
-                "client_key": str(uuid.uuid4()),
-                "set_number": 1,
-                "rep_number": 1,
-                "started_ms": 0,
-                "ended_ms": 2000,
-                "measures": {c["key"]: 1.0 for c in exercise.checks},
-            },
-            headers=self.headers,
+        repetitions = []
+        for number in (1, 2):
+            rep = client.post(
+                f"/api/v1/patient/sessions/{self.session_id}/repetitions",
+                json={
+                    "client_key": str(uuid.uuid4()),
+                    "set_number": 1,
+                    "rep_number": number,
+                    "started_ms": number * 2000,
+                    "ended_ms": number * 2000 + 1500,
+                    "measures": {c["key"]: 1.0 for c in exercise.checks},
+                    "frames": [[90.0] * len(personal.CHANNELS)] * 4,
+                },
+                headers=self.headers,
+            )
+            assert rep.status_code == 201, rep.text
+            repetitions.append(rep.json()["id"])
+        reference = client.post(
+            f"/api/v1/physio/patients/{self.account.id}/references",
+            json={"repetition_ids": repetitions},
+            headers=physio_headers,
         )
-        assert rep.status_code == 201, rep.text
+        assert reference.status_code == 201, reference.text
         saved = client.put(
             "/api/v1/patient/reminders", json={"utc_offset_minutes": 300}, headers=self.headers
         )
@@ -199,7 +214,7 @@ def test_requests_run_as_a_role_that_the_policies_apply_to(world):
 def test_a_patient_sees_only_their_own_rows(world):
     with acting_as(world.jane.account) as session:
         for model in CLINICAL:
-            assert count(session, model) == 1, model.__tablename__
+            assert count(session, model) == PER_PERSON.get(model, 1), model.__tablename__
         assert count(session, ExerciseSession, ExerciseSession.id == world.marcus.session_id) == 0
         assert count(session, ExercisePlan, ExercisePlan.id == world.marcus.plan_id) == 0
         assert count(session, ConsentRecord) == 1
@@ -212,7 +227,7 @@ def test_a_patient_sees_only_their_own_rows(world):
 def test_a_physiotherapist_sees_only_patients_assigned_to_them(world):
     with acting_as(world.sarah) as session:
         for model in CLINICAL:
-            assert count(session, model) == 1, model.__tablename__
+            assert count(session, model) == PER_PERSON.get(model, 1), model.__tablename__
         assert count(session, ExerciseSession, ExerciseSession.patient_id == world.jane.account.id) == 1
         assert count(session, ExerciseSession, ExerciseSession.patient_id == world.marcus.account.id) == 0
         # Not theirs to read at all: a patient's consent record and settings.
@@ -238,7 +253,7 @@ def test_nobody_signed_in_sees_nothing(world):
 
 def test_the_system_sees_everything_it_has_to_work_on(world, db):
     for model in CLINICAL:
-        assert count(db, model) == 2, model.__tablename__
+        assert count(db, model) == 2 * PER_PERSON.get(model, 1), model.__tablename__
 
 
 def test_reassignment_moves_what_the_database_shows(world, client):
@@ -283,7 +298,7 @@ def test_a_service_called_without_its_ownership_check_still_leaks_nothing(world,
     # The row itself was passed in, but nothing more could be fetched for it.
     assert detail.repetitions == []
     with acting_as(world.marcus.account) as session:
-        assert len(session_service.detail(session, someone_elses).repetitions) == 1
+        assert len(session_service.detail(session, someone_elses).repetitions) == 2
 
 
 def test_another_patients_rows_cannot_be_changed_or_deleted(world, db):
@@ -303,7 +318,7 @@ def test_another_patients_rows_cannot_be_changed_or_deleted(world, db):
     assert (renamed.rowcount, scored.rowcount, removed.rowcount) == (0, 0, 0)
     db.expire_all()
     assert db.get(ExercisePlan, world.marcus.plan_id).name == "Plan"
-    assert count(db, SessionRepetition, SessionRepetition.session_id == world.marcus.session_id) == 1
+    assert count(db, SessionRepetition, SessionRepetition.session_id == world.marcus.session_id) == 2
 
 
 def test_rows_cannot_be_written_into_another_patients_record(world):

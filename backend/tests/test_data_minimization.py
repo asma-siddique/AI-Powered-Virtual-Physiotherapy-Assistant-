@@ -13,8 +13,10 @@ to see the measured numbers.
 
 import uuid
 
+import numpy as np
 from sqlalchemy import text
 
+from app import personal
 from app.exercise_schemas import PlanItemIn
 from tests.test_repetitions import Arm
 from tests.test_sessions import SESSIONS
@@ -116,3 +118,55 @@ def test_no_column_can_hold_a_picture_or_a_video(db):
 
     # Equal, not just a subset: an allowed column that disappears is noticed too.
     assert {(table, column) for table, column in rows} == set(BINARY_ALLOWED)
+
+
+def test_the_largest_session_with_its_kept_angles_still_fits_under_500_kb(client, make, db):
+    max_sets = upper_limit(PlanItemIn, "sets")
+    max_reps = upper_limit(PlanItemIn, "reps")
+    arm = Arm(client, make)
+    plan = client.post(
+        f"/api/v1/physio/patients/{arm.patient.id}/plans",
+        json={
+            "name": "Largest plan",
+            "items": [{"exercise_id": str(arm.exercise.id), "sets": max_sets, "reps": max_reps}],
+        },
+        headers=arm.physio_headers,
+    )
+    assert plan.status_code == 201, plan.text
+    arm.plan = plan.json()
+    arm.session_id = arm.begin()
+    # The first repetitions keep their resampled angles (app.personal), every
+    # value measured, so a reference can be made from them; later ones do not.
+    # Values that vary as real angles do, so compression does not flatter the size.
+    noise = np.random.default_rng(8).uniform(0, 180, size=(personal.STEPS * 3, len(personal.CHANNELS)))
+    frames = noise.round(1).tolist()
+    for number in range(1, personal.STORED_SERIES + 3):
+        body = {
+            "client_key": str(uuid.uuid4()),
+            "set_number": 1,
+            "rep_number": number,
+            "started_ms": number * 3000,
+            "ended_ms": number * 3000 + 2400,
+            "measures": {"trunk_lean": 15.0, "elbow_bend": 25.0},
+            "frames": frames,
+        }
+        response = client.post(f"{SESSIONS}/{arm.session_id}/repetitions", json=body, headers=arm.headers)
+        assert response.status_code == 201, response.text
+
+    session, repetitions = stored_bytes(db, arm.session_id)
+    with_angles, without = (
+        max(repetitions[: personal.STORED_SERIES]),
+        max(repetitions[personal.STORED_SERIES :]),
+    )
+    projected = (
+        session
+        + personal.STORED_SERIES * with_angles
+        + (max_sets * max_reps - personal.STORED_SERIES) * without
+    )
+    print(
+        f"\nRepetition with its angles kept: {with_angles:,} bytes; without: {without:,}. "
+        f"Largest session: {projected:,}."
+    )
+
+    assert with_angles > without  # the angles really are kept
+    assert projected < LIMIT_BYTES

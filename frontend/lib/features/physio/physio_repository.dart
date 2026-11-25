@@ -67,6 +67,48 @@ class PatientSummary {
   String get contact => email ?? mobile ?? '';
 }
 
+/// A patient's own reference for one exercise: two repetitions their
+/// physiotherapist saw done correctly. Later sessions of that exercise are
+/// judged against it.
+class ExerciseReference {
+  const ExerciseReference({
+    required this.id,
+    required this.exercise,
+    required this.repetitions,
+    required this.createdAt,
+    required this.createdBy,
+    this.sessionsJudged = 0,
+  });
+
+  factory ExerciseReference.fromJson(
+    Map<String, dynamic> json,
+  ) => ExerciseReference(
+    id: json['id'] as String,
+    exercise: ExerciseBrief.fromJson(json['exercise'] as Map<String, dynamic>),
+    repetitions: [
+      for (final item in json['repetitions'] as List<dynamic>)
+        (
+          sessionStartedAt: DateTime.parse(
+            (item as Map<String, dynamic>)['session_started_at'] as String,
+          ),
+          setNumber: item['set_number'] as int,
+          repNumber: item['rep_number'] as int,
+        ),
+    ],
+    createdAt: DateTime.parse(json['created_at'] as String),
+    createdBy: PersonRef.fromJson(json['created_by'] as Map<String, dynamic>),
+    sessionsJudged: json['sessions_judged'] as int? ?? 0,
+  );
+
+  final String id;
+  final ExerciseBrief exercise;
+  final List<({DateTime sessionStartedAt, int setNumber, int repNumber})>
+  repetitions;
+  final DateTime createdAt;
+  final PersonRef createdBy;
+  final int sessionsJudged;
+}
+
 final physioRepositoryProvider = Provider<PhysioRepository>(
   (ref) => PhysioRepository(ref.watch(apiClientProvider)),
 );
@@ -248,6 +290,31 @@ class PhysioRepository {
       SessionBrief.fromJson(item as Map<String, dynamic>),
   ];
 
+  /// The patient's references in force, at most one per exercise.
+  Future<List<ExerciseReference>> references(String patientId) async => [
+    for (final item
+        in await _api.get('/physio/patients/$patientId/references')
+            as List<dynamic>)
+      ExerciseReference.fromJson(item as Map<String, dynamic>),
+  ];
+
+  /// Makes the patient's reference for an exercise from two of their
+  /// repetitions; one already in force for that exercise is retired.
+  Future<ExerciseReference> setReference(
+    String patientId,
+    List<String> repetitionIds,
+  ) async => ExerciseReference.fromJson(
+    await _api.post(
+          '/physio/patients/$patientId/references',
+          body: {'repetition_ids': repetitionIds},
+        )
+        as Map<String, dynamic>,
+  );
+
+  /// Stops judging the patient against this reference; it is kept on record.
+  Future<void> retireReference(String patientId, String referenceId) =>
+      _api.delete('/physio/patients/$patientId/references/$referenceId');
+
   Future<List<ExercisePlan>> plans(String patientId) async {
     final json =
         await _api.get('/physio/patients/$patientId/plans') as List<dynamic>;
@@ -257,3 +324,15 @@ class PhysioRepository {
     ];
   }
 }
+
+final patientReferencesProvider = FutureProvider.autoDispose
+    .family<List<ExerciseReference>, String>(
+      (ref, patientId) =>
+          ref.watch(physioRepositoryProvider).references(patientId),
+    );
+
+final physioPatientSessionsProvider = FutureProvider.autoDispose
+    .family<List<SessionBrief>, String>(
+      (ref, patientId) =>
+          ref.watch(physioRepositoryProvider).patientSessions(patientId),
+    );

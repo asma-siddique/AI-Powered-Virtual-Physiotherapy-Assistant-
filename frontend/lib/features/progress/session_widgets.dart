@@ -284,31 +284,42 @@ class SessionCard extends StatelessWidget {
 }
 
 /// Opens one session in full. [load] fetches it; [footer] adds actions for
-/// whoever is looking, such as marking it reviewed.
+/// whoever is looking, such as marking it reviewed. With [onMakeReference]
+/// (the physiotherapist), repetitions whose angles were kept can be ticked
+/// and two of them made the patient's reference for the exercise.
 Future<void> showSessionDetail(
   BuildContext context, {
   required Future<SessionDetail> Function() load,
   String? patientName,
   Widget Function(BuildContext context, SessionDetail session)? footer,
+  Future<void> Function(SessionDetail session, List<String> repetitionIds)?
+  onMakeReference,
 }) => showDialog<void>(
   context: context,
   builder: (context) => _SessionDetailDialog(
     load: load,
     patientName: patientName,
     footer: footer,
+    onMakeReference: onMakeReference,
   ),
 );
+
+/// How many repetitions make a reference (backend app/personal.py).
+const referenceRepetitions = 2;
 
 class _SessionDetailDialog extends StatefulWidget {
   const _SessionDetailDialog({
     required this.load,
     this.patientName,
     this.footer,
+    this.onMakeReference,
   });
 
   final Future<SessionDetail> Function() load;
   final String? patientName;
   final Widget Function(BuildContext context, SessionDetail session)? footer;
+  final Future<void> Function(SessionDetail session, List<String> ids)?
+  onMakeReference;
 
   @override
   State<_SessionDetailDialog> createState() => _SessionDetailDialogState();
@@ -316,6 +327,69 @@ class _SessionDetailDialog extends StatefulWidget {
 
 class _SessionDetailDialogState extends State<_SessionDetailDialog> {
   late Future<SessionDetail> _session = widget.load();
+
+  /// Repetitions ticked to become the reference, by id.
+  final _picked = <String>{};
+  bool _saving = false;
+  String? _referenceError;
+  String? _referenceDone;
+
+  bool _picking(SessionDetail session) =>
+      widget.onMakeReference != null &&
+      session.referenceSupported &&
+      !session.isUnderWay &&
+      session.repetitions.any((r) => r.canBeReference);
+
+  Future<void> _makeReference(SessionDetail session) async {
+    final sure = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Make these the reference?'),
+        content: Text(
+          'Choose only repetitions you saw done correctly. From the next '
+          'session on, ${session.exercise.name} is judged by how close each '
+          'repetition comes to these two. A reference already set for it is '
+          'replaced and kept on record. The safety thresholds still apply.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('confirm-reference'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Make reference'),
+          ),
+        ],
+      ),
+    );
+    if (sure != true || !mounted) return;
+    setState(() {
+      _saving = true;
+      _referenceError = null;
+      _referenceDone = null;
+    });
+    try {
+      final ids = [
+        for (final r in session.repetitions)
+          if (_picked.contains(r.id)) r.id,
+      ];
+      await widget.onMakeReference!(session, ids);
+      if (!mounted) return;
+      setState(() {
+        _picked.clear();
+        _referenceDone =
+            'Reference saved. The next ${session.exercise.name} session is '
+            'judged against it.';
+        _session = widget.load();
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _referenceError = error.message);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -504,13 +578,36 @@ class _SessionDetailDialogState extends State<_SessionDetailDialog> {
                         session.exercise.slug,
                         session.exercise.name,
                       ),
+                      picked: _picking(session) && repetition.canBeReference
+                          ? _picked.contains(repetition.id)
+                          : null,
+                      onPicked: (on) => setState(() {
+                        _referenceDone = null;
+                        on
+                            ? _picked.add(repetition.id)
+                            : _picked.remove(repetition.id);
+                      }),
                     ),
                 ],
                 if (session.scoringVersion != null) ...[
                   const SizedBox(height: 16),
                   Text(
-                    'Scored with ${session.scoringVersion}.',
+                    session.judgedAgainstReference
+                        ? "Judged against the patient's own reference "
+                              '(${session.scoringVersion}).'
+                        : 'Scored with ${session.scoringVersion}.',
+                    key: const Key('detail-scored-with'),
                     style: text.bodySmall?.copyWith(color: AppColors.textMuted),
+                  ),
+                ],
+                if (_picking(session)) ...[
+                  const SizedBox(height: 16),
+                  _ReferencePicker(
+                    picked: _picked.length,
+                    saving: _saving,
+                    error: _referenceError,
+                    done: _referenceDone,
+                    onMake: () => _makeReference(session),
                   ),
                 ],
               ],
@@ -529,11 +626,87 @@ class _SessionDetailDialogState extends State<_SessionDetailDialog> {
   }
 }
 
+/// Ticking two repetitions and making them the reference.
+class _ReferencePicker extends StatelessWidget {
+  const _ReferencePicker({
+    required this.picked,
+    required this.saving,
+    required this.onMake,
+    this.error,
+    this.done,
+  });
+
+  final int picked;
+  final bool saving;
+  final VoidCallback onMake;
+  final String? error;
+  final String? done;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('reference-picker'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primaryTint,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Patient reference: tick $referenceRepetitions repetitions you saw '
+            'done correctly. Only the first repetitions of a session can be '
+            'chosen.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 8),
+            InlineBanner(key: const Key('reference-error'), message: error!),
+          ],
+          if (done != null) ...[
+            const SizedBox(height: 8),
+            InlineBanner(
+              key: const Key('reference-done'),
+              tone: BannerTone.info,
+              message: done!,
+            ),
+          ],
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              key: const Key('make-reference'),
+              onPressed: picked == referenceRepetitions && !saving
+                  ? onMake
+                  : null,
+              child: Text(
+                picked == referenceRepetitions
+                    ? 'Make these the reference'
+                    : '$picked of $referenceRepetitions chosen',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RepetitionRow extends StatelessWidget {
-  const _RepetitionRow({required this.repetition, this.exercise});
+  const _RepetitionRow({
+    required this.repetition,
+    this.exercise,
+    this.picked,
+    this.onPicked,
+  });
 
   final RepetitionDetail repetition;
   final HoloExercise? exercise;
+
+  /// Whether it is ticked for the reference; null when it cannot be ticked.
+  final bool? picked;
+  final ValueChanged<bool>? onPicked;
 
   @override
   Widget build(BuildContext context) {
@@ -566,6 +739,14 @@ class _RepetitionRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (picked != null)
+            Checkbox(
+              key: Key(
+                'pick-rep-${repetition.setNumber}-${repetition.repNumber}',
+              ),
+              value: picked,
+              onChanged: (on) => onPicked?.call(on ?? false),
+            ),
           SizedBox(
             width: 28,
             child: Text('${repetition.repNumber}', style: text.titleSmall),
@@ -574,7 +755,26 @@ class _RepetitionRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Pill(label, foreground: foreground, background: background),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    Pill(label, foreground: foreground, background: background),
+                    if (repetition.inReference) const Pill.neutral('Reference'),
+                  ],
+                ),
+                if (repetition.referenceDistance != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${repetition.referenceDistance!.toStringAsFixed(1)} from '
+                    'the reference: '
+                    '${repetition.judgedCorrect == true ? 'done correctly' : 'different from it'}',
+                    key: Key(
+                      'rep-distance-${repetition.setNumber}-${repetition.repNumber}',
+                    ),
+                    style: text.bodySmall?.copyWith(color: AppColors.textMuted),
+                  ),
+                ],
                 if (repetition.feedback.isNotEmpty ||
                     repetition.unmeasured.isNotEmpty)
                   const SizedBox(height: 6),

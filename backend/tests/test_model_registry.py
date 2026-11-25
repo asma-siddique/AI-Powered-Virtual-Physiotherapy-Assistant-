@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
-from app import classifier, scoring
+from app import classifier, personal, scoring
 from app.models import (
     AuditLog,
     ExerciseSession,
@@ -450,12 +450,13 @@ def arm(client, make) -> Arm:
     return Arm(client, make)
 
 
-def test_a_session_under_the_rule_asks_for_no_frames(arm):
-    assert arm.session()["series"] is None
+def test_a_session_under_the_rule_asks_for_the_standard_frames_and_judges_none(arm):
+    # Asked for so the first repetitions can become the patient's reference
+    # (app.personal), not because anything judges them.
+    assert arm.session()["series"]["channels"] == list(personal.CHANNELS)
 
-    judged = rep(arm, 1).json()
+    judged = rep(arm, 1, frames=[[90.0] * len(personal.CHANNELS)] * 4).json()
 
-    # Frames sent anyway are not judged by anything.
     assert judged["judged_correct"] is None
     assert end(arm)["summary"]["scoring_version"] == scoring.VERSION
 
@@ -508,8 +509,8 @@ def test_a_session_keeps_the_model_it_started_with(arm, admin, db):
 
     assert summary["scoring_version"] == version
     arm.session_id = arm.begin()
-    assert arm.session()["series"] is None
-    rep(arm, 1)
+    assert arm.session()["series"]["channels"] == list(personal.CHANNELS)
+    rep(arm, 1, frames=None)
     assert end(arm)["summary"]["scoring_version"] == scoring.VERSION
 
 
@@ -542,8 +543,8 @@ def test_an_exercise_the_model_was_not_trained_on_is_scored_by_the_rule(admin, c
     arm.plan = arm.assign("Leg plan", lunge)
     arm.session_id = arm.begin()
 
-    assert arm.session()["series"] is None
-    rep(arm, 1)
+    assert arm.session()["series"]["channels"] == list(personal.CHANNELS)
+    rep(arm, 1, frames=None)
     assert end(arm)["summary"]["scoring_version"] == scoring.VERSION
 
 

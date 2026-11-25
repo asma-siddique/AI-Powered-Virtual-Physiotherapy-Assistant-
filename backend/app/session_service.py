@@ -18,8 +18,10 @@ from app import (
     errors,
     model_registry,
     notifications,
+    personal,
     pose,
     pose_features,
+    reference_service,
     scoring,
     severity,
 )
@@ -28,6 +30,7 @@ from app.exercise_schemas import ExerciseBrief
 from app.models import (
     Account,
     ExercisePlan,
+    ExerciseReference,
     ExerciseSession,
     ExerciseTemplate,
     PatientAssignment,
@@ -230,6 +233,7 @@ def _close(db: Session, session: ExerciseSession, status_: str, patient: Account
             (tier, measures) for tier, measures, _ in rows
         )
         session.scoring_version = scoring.VERSION
+        session.reference_id = None
     threshold = get_settings().flag_score_below
     if session.form_score is not None and session.form_score < threshold:
         session.flag_threshold = threshold
@@ -359,10 +363,12 @@ def detail(db: Session, session: ExerciseSession) -> SessionDetail:
     """One session with every repetition it holds, in the order performed."""
     template = db.get(ExerciseTemplate, session.exercise_template_id)
     repetitions = db.execute(
-        select(SessionRepetition)
+        select(SessionRepetition, SessionRepetition.series.is_not(None))
         .where(SessionRepetition.session_id == session.id)
         .order_by(SessionRepetition.set_number, SessionRepetition.rep_number)
-    ).scalars()
+    ).all()
+    current = reference_service.current(db, session.patient_id, template.id)
+    in_reference = set(current.repetition_ids) if current is not None else set()
     return SessionDetail(
         **brief(db, session, template).model_dump(),
         difficulty=session.difficulty,
@@ -372,8 +378,10 @@ def detail(db: Session, session: ExerciseSession) -> SessionDetail:
         patient_note=session.patient_note,
         clinician_note=session.clinician_note,
         clinician_note_at=session.clinician_note_at,
+        reference_supported=template.slug in personal.CUTS,
         repetitions=[
             RepetitionDetail(
+                id=repetition.id,
                 set_number=repetition.set_number,
                 rep_number=repetition.rep_number,
                 started_ms=repetition.started_ms,
@@ -381,8 +389,16 @@ def detail(db: Session, session: ExerciseSession) -> SessionDetail:
                 tier=repetition.tier,
                 feedback=repetition.feedback,
                 unmeasured=[key for key, value in repetition.measures.items() if value is None],
+                can_be_reference=bool(kept) and template.slug in personal.CUTS,
+                in_reference=str(repetition.id) in in_reference,
+                reference_distance=repetition.reference_distance,
+                judged_correct=(
+                    None
+                    if repetition.correct_probability is None
+                    else repetition.correct_probability >= scoring.CORRECT_FROM
+                ),
             )
-            for repetition in repetitions
+            for repetition, kept in repetitions
         ],
     )
 
@@ -410,20 +426,26 @@ def to_out(db: Session, session: ExerciseSession) -> SessionOut:
     )
 
 
+def _channels(db: Session, session: ExerciseSession) -> tuple[str, ...]:
+    """The values of one frame, in order: the session's classifier's, or else
+    the standard ones (app.personal) a reference is made of."""
+    model = model_registry.classifier_of(db, session.scoring_version)
+    return tuple(model.channels) if model is not None else personal.CHANNELS
+
+
 def _series(db: Session, session: ExerciseSession) -> SeriesSpec | None:
-    """What the app has to send with each repetition for the session's
-    classifier; None when the rule scores the session or it has ended."""
+    """What the app has to send with each repetition: for the session's
+    scorer, and so its first repetitions can become the patient's reference.
+    None once the session has ended."""
     if session.status not in UNDER_WAY:
         return None
-    model = model_registry.classifier_of(db, session.scoring_version)
-    if model is None:
-        return None
+    channels = _channels(db, session)
     sides = len(pose_features.SIDES)
-    joints = [name.removeprefix("left_") for name in model.channels if name.startswith("left_")]
+    joints = [name.removeprefix("left_") for name in channels if name.startswith("left_")]
     return SeriesSpec(
         joints=joints,
-        checks=list(model.channels[len(joints) * sides :]),
-        channels=list(model.channels),
+        checks=list(channels[len(joints) * sides :]),
+        channels=list(channels),
         max_frames=MAX_SERIES_FRAMES,
     )
 
@@ -462,6 +484,11 @@ def start(
         _close(db, stale, ABANDONED, patient)
     db.flush()
 
+    # A patient with a reference for this exercise is judged against it;
+    # everyone else by the production model or the rule.
+    reference = (
+        reference_service.current(db, patient.id, template.id) if template.slug in personal.CUTS else None
+    )
     session = ExerciseSession(
         id=uuid.uuid4(),
         patient_id=patient.id,
@@ -481,7 +508,10 @@ def start(
         started_at=now,
         # Fixed here: promoting or rolling back a model later never changes
         # how a session already under way is scored.
-        scoring_version=model_registry.scorer_for(db, template.slug),
+        scoring_version=(
+            personal.VERSION if reference is not None else model_registry.scorer_for(db, template.slug)
+        ),
+        reference_id=reference.id if reference is not None else None,
         precheck={
             "brightness": evidence.brightness,
             "held_ms": evidence.held_ms,
@@ -594,27 +624,60 @@ def _same_repetition(stored: SessionRepetition, sent: RepetitionIn) -> bool:
     )
 
 
-def _judge(db: Session, session: ExerciseSession, sent: RepetitionIn) -> tuple[float | None, str | None]:
-    """How likely the session's classifier thinks the repetition correct, and
-    the model's version. (None, None) when the rule scores this session or
-    the app sent no frames. This never decides the tier or the safety pause:
-    those stay with the thresholds."""
+class _Judged:
+    """What the session's scorer made of one repetition."""
+
+    def __init__(self) -> None:
+        self.probability: float | None = None
+        self.judged_by: str | None = None
+        self.distance: float | None = None
+        # The resampled angles to keep, for a reference later.
+        self.series: list[list[float | None]] | None = None
+
+
+def _judge(db: Session, session: ExerciseSession, sent: RepetitionIn) -> _Judged:
+    """How likely the session's scorer thinks the repetition correct, and its
+    version; empty when the rule scores this session or the app sent no
+    frames. This never decides the tier or the safety pause: those stay with
+    the thresholds."""
+    judged = _Judged()
     if sent.frames is None:
-        return None, None
-    model = model_registry.classifier_of(db, session.scoring_version)
-    if model is None:
-        return None, None
-    if any(len(frame) != len(model.channels) for frame in sent.frames):
+        return judged
+    channels = _channels(db, session)
+    if any(len(frame) != len(channels) for frame in sent.frames):
         raise errors.ApiError(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             "frames_malformed",
-            f"Every frame needs {len(model.channels)} values, in the order the session asks for.",
+            f"Every frame needs {len(channels)} values, in the order the session asks for.",
         )
     template = db.get(ExerciseTemplate, session.exercise_template_id)
+    standard = channels == personal.CHANNELS
+    if standard:
+        kept = db.execute(
+            select(func.count())
+            .select_from(SessionRepetition)
+            .where(SessionRepetition.session_id == session.id, SessionRepetition.series.is_not(None))
+        ).scalar_one()
+        values, mask = personal.series_of(sent.frames)
+        if kept < personal.STORED_SERIES:
+            judged.series = personal.encode(values, mask)
+
+    if session.scoring_version == personal.VERSION and standard:
+        reference = db.get(ExerciseReference, session.reference_id)
+        distance = personal.distance_for(template.slug, values, mask, *personal.decode(reference.series))
+        if distance is not None:
+            judged.distance = round(distance, 3)
+            judged.probability = personal.probability_correct(distance, template.slug)
+            judged.judged_by = personal.VERSION
+        return judged
+
+    model = model_registry.classifier_of(db, session.scoring_version)
+    if model is None:
+        return judged
     probability = model.judge(sent.frames, template.slug)
-    if probability is None:
-        return None, None
-    return probability, session.scoring_version
+    if probability is not None:
+        judged.probability, judged.judged_by = probability, session.scoring_version
+    return judged
 
 
 def record_repetition(
@@ -683,7 +746,7 @@ def record_repetition(
         )
 
     tier, feedback, _ = severity.classify(sent.measures, session.checks)
-    probability, judged_by = _judge(db, session, sent)
+    judged = _judge(db, session, sent)
     repetition = SessionRepetition(
         id=uuid.uuid4(),
         session_id=session.id,
@@ -697,9 +760,12 @@ def record_repetition(
         tier=tier,
         feedback=feedback,
         created_at=clock.utcnow(),
-        correct_probability=probability,
-        model_version=judged_by,
+        correct_probability=judged.probability,
+        model_version=judged.judged_by,
+        reference_distance=judged.distance,
     )
+    if judged.series is not None:
+        repetition.series = judged.series
     db.add(repetition)
     if tier == severity.RED:
         # In the same transaction as the repetition: a RED is never stored

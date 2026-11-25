@@ -72,16 +72,37 @@ def test_amber_moves_to_where_the_labels_change():
     assert amber * 2 == int(amber * 2)
 
 
-def test_red_is_kept_unless_amber_would_reach_it():
-    measures = [{"trunk_lean": v} for v in [5.0] * 50 + [30.0] * 50]
-    labels = np.array([1] * 50 + [0] * 50)
+def test_red_is_learned_beyond_what_correct_repetitions_do():
+    rng = np.random.default_rng(1)
+    correct = rng.uniform(2, 15, 200)
+    incorrect = rng.uniform(19, 40, 200)
+    measures = [{"trunk_lean": float(v)} for v in np.concatenate([correct, incorrect])]
+    labels = np.array([1] * 200 + [0] * 200)
 
-    new, _ = thresholds.derive_exercise(measures, labels, [check(amber=10.0, red=12.0)])
+    new, report = thresholds.derive_exercise(measures, labels, [check(amber=10.0, red=12.0)])
 
-    # AMBER moved up past the old RED: RED keeps its old 2 degree distance above it.
-    assert new[0]["red"] == new[0]["amber"] + 2.0
+    assert report["signal"]["trunk_lean"] is True
+    # Where only 2% of correct repetitions reach, and above AMBER.
+    assert new[0]["red"] == max(round(np.quantile(correct, 0.98) * 2) / 2, new[0]["amber"] + 0.5)
+    # A check the template never lets pause a session still cannot.
     no_red, _ = thresholds.derive_exercise(measures, labels, [check(red=None)])
     assert no_red[0]["red"] is None
+
+
+def test_a_check_without_signal_only_warns_beyond_correct_repetitions_and_never_pauses():
+    rng = np.random.default_rng(2)
+    # Correct and incorrect repetitions measure alike: the check says nothing.
+    values = rng.uniform(0, 10, 400)
+    measures = [{"trunk_lean": float(v)} for v in values]
+    labels = np.array([1, 0] * 200)
+
+    new, report = thresholds.derive_exercise(measures, labels, [check(amber=10.0, red=20.0)])
+
+    assert report["signal"]["trunk_lean"] is False
+    low, high = report["separation_interval"]["trunk_lean"]
+    assert low <= 0.5 <= high
+    assert new[0]["amber"] == round(np.quantile(values[labels == 1], 0.98) * 2) / 2 + 0.5
+    assert new[0]["red"] is None
 
 
 def test_an_unmeasured_check_never_counts_against_a_repetition():
